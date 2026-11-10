@@ -1,0 +1,9 @@
+node_modules/
+.gradle/
+build/
+local.properties
+*.iml
+.idea/
+core/data/
+android/app/src/main/jniLibs/
+dist/

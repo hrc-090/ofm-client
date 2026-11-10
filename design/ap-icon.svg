@@ -1,0 +1,64 @@
+<svg width="512" height="512" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="AP API 网关图标">
+  <title>AP — 本地模型网关</title>
+  <style>
+    :root {
+      --ic-a: #6366F1;
+      --ic-b: #7C3AED;
+      --ic-c: #4338CA;
+      --ic-hi: #22D3EE;
+      --ic-fg: #FFFFFF;
+      --ic-ink: #4338CA;
+    }
+  </style>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="var(--ic-a, #6366F1)"/>
+      <stop offset="0.55" stop-color="var(--ic-b, #7C3AED)"/>
+      <stop offset="1" stop-color="var(--ic-c, #4338CA)"/>
+    </linearGradient>
+    <radialGradient id="halo" cx="0.5" cy="0.38" r="0.65">
+      <stop offset="0" stop-color="var(--ic-fg, #FFFFFF)" stop-opacity="0.26"/>
+      <stop offset="1" stop-color="var(--ic-fg, #FFFFFF)" stop-opacity="0"/>
+    </radialGradient>
+    <filter id="blur" x="-80%" y="-80%" width="260%" height="260%">
+      <feGaussianBlur stdDeviation="14"/>
+    </filter>
+    <filter id="shadow" x="-50%" y="-50%" width="200%" height="200%">
+      <feDropShadow dx="0" dy="10" stdDeviation="14" flood-color="#1E1B4B" flood-opacity="0.35"/>
+    </filter>
+  </defs>
+
+  <!-- 底色 -->
+  <rect x="16" y="16" width="480" height="480" rx="112" fill="url(#bg)"/>
+  <rect x="16" y="16" width="480" height="480" rx="112" fill="url(#halo)"/>
+
+  <!-- 高亮节点光晕 -->
+  <circle cx="256" cy="96" r="40" fill="var(--ic-hi, #22D3EE)" opacity="0.55" filter="url(#blur)"/>
+
+  <!-- 四向连接：多端接入 / 多模型分发 -->
+  <g stroke="var(--ic-fg, #FFFFFF)" stroke-width="20" stroke-linecap="round" opacity="0.92">
+    <path d="M256 188 V118"/>
+    <path d="M256 308 V378"/>
+    <path d="M196 248 H118"/>
+    <path d="M316 248 H394"/>
+  </g>
+
+  <!-- 端点 -->
+  <circle cx="256" cy="96" r="22" fill="var(--ic-hi, #22D3EE)"/>
+  <circle cx="256" cy="400" r="22" fill="var(--ic-fg, #FFFFFF)"/>
+  <circle cx="96" cy="248" r="22" fill="var(--ic-fg, #FFFFFF)"/>
+  <circle cx="416" cy="248" r="22" fill="var(--ic-fg, #FFFFFF)"/>
+
+  <!-- 中心网关 -->
+  <rect x="196" y="188" width="120" height="120" rx="32" fill="var(--ic-fg, #FFFFFF)" filter="url(#shadow)"/>
+  <g stroke="var(--ic-ink, #4338CA)" stroke-width="12" stroke-linecap="round" fill="none">
+    <path d="M224 248 H262"/>
+    <path d="M262 248 L290 222"/>
+    <path d="M262 248 L290 274"/>
+  </g>
+  <g fill="var(--ic-ink, #4338CA)">
+    <circle cx="222" cy="248" r="9"/>
+    <circle cx="292" cy="222" r="9"/>
+    <circle cx="292" cy="274" r="9"/>
+  </g>
+</svg>
