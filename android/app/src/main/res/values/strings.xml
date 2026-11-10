@@ -1,0 +1,4 @@
+<resources>
+    <string name="app_name">OFM 渠道</string>
+    <string name="notif_channel">本机 API 服务</string>
+</resources>

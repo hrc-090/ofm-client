@@ -1,0 +1,14 @@
+{
+  "name": "ofm-core",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "账号渠道连接 + 本机 OpenAI/Anthropic 兼容 API（Android 内嵌 Node 运行时）",
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "start": "node main.js",
+    "test": "node test/acceptance.mjs"
+  }
+}

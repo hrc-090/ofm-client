@@ -1,0 +1,445 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>OFM · 界面预览（M36 导航调整）</title>
+<style>
+:root{
+  --paper:#F6F4EF; --surface:#FDFCF9; --surface-2:#EFECE4;
+  --ink:#1B2430; --muted:#5A6070; --line:#DCD8CE;
+  --accent:#B24A2E; --accent-soft:#F8E5DD;
+  --ok:#2E7D5B; --warn:#A9750F; --bad:#AE3A34;
+  --on-accent:#FFFFFF;
+  --shadow:0 1px 2px rgba(27,36,48,.05);
+}
+[data-theme="dark"]{
+  --paper:#12151A; --surface:#1A1E25; --surface-2:#272C35;
+  --ink:#ECE9E1; --muted:#AEB3BF; --line:#3A404B;
+  --accent:#ED9A7C; --accent-soft:#4A2A20;
+  --ok:#6FCBA3; --warn:#E0B45A; --bad:#F08C85;
+  --on-accent:#3A1A10;
+  --shadow:0 1px 2px rgba(0,0,0,.25);
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+body{margin:0;background:var(--paper);color:var(--ink);
+  font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei","Segoe UI",sans-serif;
+  font-size:14px;line-height:1.6;transition:background .25s,color .25s}
+.mono{font-family:ui-monospace,SFMono-Regular,"JetBrains Mono",Menlo,Consolas,monospace;letter-spacing:.15px}
+.wrap{max-width:1180px;margin:0 auto;padding:36px 28px 80px}
+
+/* ── 页头 ── */
+.eyebrow{font-size:10px;font-weight:700;letter-spacing:1.5px;color:var(--muted)}
+.hero{display:flex;align-items:flex-end;justify-content:space-between;gap:24px;flex-wrap:wrap;
+  padding-bottom:26px;border-bottom:1px solid var(--line)}
+.hero h1{font-size:38px;line-height:1.15;letter-spacing:-1px;margin:10px 0 8px;font-weight:700}
+.hero p{margin:0;color:var(--muted);max-width:620px;font-size:14px}
+.hero .badge{border:1px solid var(--line);background:var(--surface);border-radius:20px;
+  padding:7px 13px;font-size:11px;font-weight:600;white-space:nowrap}
+.hero .badge b{color:var(--accent)}
+
+.sec{margin-top:42px}
+.sec-head{display:flex;align-items:baseline;gap:12px;margin-bottom:16px}
+.sec-head h2{font-size:19px;margin:0;letter-spacing:-.3px}
+.sec-head span{font-size:12px;color:var(--muted)}
+
+/* ── 设计原则 ── */
+.principles{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
+.principle{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:18px}
+.principle .n{font:700 11px/1 ui-monospace,monospace;color:var(--accent);letter-spacing:1px}
+.principle h3{margin:12px 0 6px;font-size:15px}
+.principle p{margin:0;font-size:12.5px;color:var(--muted);line-height:1.7}
+
+/* ── 预览区 ── */
+.preview{display:grid;grid-template-columns:390px 1fr;gap:44px;align-items:start}
+.phone{width:390px;background:var(--surface);border:1px solid var(--line);border-radius:26px;
+  box-shadow:0 18px 46px rgba(27,36,48,.13);overflow:hidden;position:sticky;top:24px}
+.phone-top{background:var(--paper);padding:11px 18px 0;border-bottom:1px solid transparent}
+.statusbar{display:flex;justify-content:space-between;font-size:10px;color:var(--muted);margin-bottom:12px;font-weight:600}
+.appbar{padding-bottom:12px}
+.appbar-row{display:flex;align-items:center;justify-content:space-between}
+.chip{display:flex;align-items:center;gap:6px;background:var(--surface);border:1px solid var(--line);
+  border-radius:20px;padding:4px 9px;font-size:11px;font-weight:600}
+.dot{width:12px;height:12px;border-radius:50%;border:1.5px solid var(--ok);position:relative;flex:none}
+.dot::after{content:"";position:absolute;inset:2.5px;border-radius:50%;background:var(--ok)}
+.title-row{display:flex;align-items:center;justify-content:space-between;margin-top:9px}
+.title-row h3{margin:0;font-size:20px;font-weight:700;letter-spacing:-.2px}
+.title-row .sub{font-size:11px;color:var(--muted);margin-top:1px}
+.gear{width:30px;height:30px;display:grid;place-items:center;color:var(--muted)}
+.gear svg{width:18px;height:18px}
+.screen{height:560px;overflow-y:auto;padding:20px 20px 24px;background:var(--paper)}
+.screen::-webkit-scrollbar{width:0}
+.bottombar{display:flex;background:var(--paper);border-top:1px solid var(--line);padding-bottom:6px}
+.tab{flex:1;text-align:center;padding:8px 0 6px;cursor:pointer;color:var(--muted);position:relative;user-select:none}
+.tab .mark{width:20px;height:2px;border-radius:1px;background:transparent;margin:0 auto 5px}
+.tab .ico{width:26px;height:26px;margin:0 auto 3px;display:grid;place-items:center;border-radius:8px}
+.tab .ico svg{width:17px;height:17px}
+.tab span{font-size:11px;font-weight:500}
+.tab.on{color:var(--ink)}
+.tab.on .mark{background:var(--accent)}
+.tab.on .ico{background:color-mix(in srgb,var(--accent) 10%,transparent)}
+.tab.on span{font-weight:700}
+
+/* 首页 */
+.big{font-size:32px;font-weight:700;letter-spacing:-.8px;line-height:1.15;margin:10px 0 0}
+.big-row{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.switch{width:44px;height:26px;border-radius:13px;background:color-mix(in srgb,var(--accent) 32%,var(--surface));
+  border:1px solid var(--accent);position:relative;cursor:pointer;flex:none}
+.switch::after{content:"";position:absolute;top:2px;left:20px;width:20px;height:20px;border-radius:50%;background:var(--accent)}
+.statusline{display:flex;align-items:center;gap:8px;margin-top:10px;font-size:12px;color:var(--muted)}
+.hair{height:1px;background:var(--line);margin:22px 0}
+.sec-label{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px}
+.sec-label b{font-size:14px;font-weight:600}
+.copyfield{display:flex;align-items:center;gap:10px;background:color-mix(in srgb,var(--surface-2) 42%,var(--surface));
+  border:1px solid var(--line);border-radius:8px;padding:10px 12px;margin-bottom:8px;cursor:pointer}
+.copyfield:hover{border-color:var(--accent)}
+.copyfield .k{font-size:10px;font-weight:600;letter-spacing:.6px;color:var(--muted)}
+.copyfield .v{font-size:13px;margin-top:3px;word-break:break-all}
+.copyfield .cp{margin-left:auto;color:var(--muted);flex:none}
+.copyfield .cp svg{width:16px;height:16px;display:block}
+.hint{font-size:12px;color:var(--muted);line-height:1.5;margin-top:2px}
+.metrics{display:flex;align-items:stretch;margin-top:14px}
+.metric{flex:1;padding:0 16px}
+.metric:first-child{padding-left:0}
+.metric .num{font-size:28px;font-weight:700;letter-spacing:-1px;line-height:1.1}
+.metric .lab{font-size:11px;color:var(--muted);margin-top:2px}
+.vline{width:1px;background:var(--line);margin:4px 0}
+.linkrow{display:flex;align-items:center;padding:12px 4px;cursor:pointer;border-radius:8px}
+.linkrow:hover{background:var(--surface)}
+.linkrow b{font-size:14px;font-weight:600;display:block}
+.linkrow small{font-size:11px;color:var(--muted)}
+.linkrow .arw{margin-left:auto;color:var(--muted)}
+.recent{font-size:13px;color:var(--muted)}
+
+/* 分段开关（模型 / 积分合并页） */
+.segment{display:flex;gap:3px;padding:3px;margin-bottom:14px;border:1px solid var(--line);
+  border-radius:8px;background:color-mix(in srgb,var(--surface-2) 35%,var(--surface))}
+.segment div{flex:1;text-align:center;padding:9px 0;border-radius:5px;font-size:12px;
+  font-weight:600;color:var(--muted);cursor:pointer;user-select:none}
+.segment div:hover{color:var(--ink)}
+.segment div.on{background:var(--ink);color:var(--paper);font-weight:700}
+
+/* 通用页面元素 */
+.card{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:16px;margin-bottom:10px}
+.card .top{display:flex;align-items:center;gap:8px;justify-content:space-between}
+.card .name{font-size:15px;font-weight:600}
+.card .meta{font-size:11.5px;color:var(--muted);margin-top:4px}
+.pill{display:inline-flex;align-items:center;gap:5px;font-size:10px;font-weight:600;
+  border:1px solid var(--line);background:var(--surface-2);border-radius:5px;padding:3px 7px;color:var(--muted)}
+.pill.ok{color:var(--ok);border-color:color-mix(in srgb,var(--ok) 30%,transparent);background:color-mix(in srgb,var(--ok) 11%,transparent)}
+.pill.bad{color:var(--bad);border-color:color-mix(in srgb,var(--bad) 30%,transparent);background:color-mix(in srgb,var(--bad) 11%,transparent)}
+.pill.wait{color:var(--warn);border-color:color-mix(in srgb,var(--warn) 30%,transparent);background:color-mix(in srgb,var(--warn) 11%,transparent)}
+.pill i{width:5px;height:5px;border-radius:3px;background:currentColor;display:block}
+.btn{display:inline-block;border:1px solid var(--line);background:var(--surface);color:var(--ink);
+  border-radius:8px;padding:8px 14px;font-size:12px;font-weight:600;cursor:pointer}
+.btn.primary{background:var(--ink);color:var(--paper);border-color:var(--ink)}
+.btn.accent{background:var(--accent);color:var(--on-accent);border-color:var(--accent)}
+.bar{height:6px;border-radius:3px;background:var(--surface-2);overflow:hidden;margin-top:8px}
+.bar i{display:block;height:100%;background:var(--accent);border-radius:3px}
+.kv{display:flex;justify-content:space-between;font-size:12.5px;padding:9px 0;border-bottom:1px solid var(--line)}
+.kv:last-child{border-bottom:0}
+.kv span:last-child{font-weight:600}
+
+/* 右侧说明 */
+.side h2{margin:0 0 8px;font-size:19px;letter-spacing:-.3px}
+.side .lead{color:var(--muted);font-size:13px;margin:0 0 20px}
+.swatch-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:10px}
+.swatch{border:1px solid var(--line);border-radius:10px;overflow:hidden;background:var(--surface)}
+.swatch .c{height:52px}
+.swatch .t{padding:9px 11px;font-size:11px}
+.swatch .t b{display:block;font-size:12px}
+.swatch .t span{color:var(--muted);font-family:ui-monospace,monospace;font-size:10.5px}
+.spec{margin-top:26px}
+.spec table{width:100%;border-collapse:collapse;font-size:12.5px}
+.spec th,.spec td{text-align:left;padding:9px 0;border-bottom:1px solid var(--line);vertical-align:top}
+.spec th{font-weight:600;width:112px;color:var(--muted);font-size:11.5px}
+.spec td b{font-weight:600}
+.typescale{display:flex;flex-direction:column;gap:8px}
+.typescale div{display:flex;align-items:baseline;gap:12px;border-bottom:1px solid var(--line);padding-bottom:8px}
+.typescale code{font-size:10.5px;color:var(--muted);width:98px;flex:none;font-family:ui-monospace,monospace}
+.controls{display:flex;gap:8px;margin-bottom:18px;flex-wrap:wrap}
+.controls button{border:1px solid var(--line);background:var(--surface);color:var(--ink);
+  border-radius:8px;padding:7px 12px;font-size:12px;cursor:pointer;font-weight:600}
+.controls button.on{background:var(--ink);color:var(--paper);border-color:var(--ink)}
+.note{margin-top:22px;padding:14px 16px;border-left:2px solid var(--accent);background:var(--surface);
+  font-size:12.5px;color:var(--muted);border-radius:0 8px 8px 0}
+.note b{color:var(--ink)}
+.toast{position:fixed;left:50%;bottom:28px;transform:translateX(-50%) translateY(20px);
+  background:var(--ink);color:var(--paper);padding:9px 18px;border-radius:20px;font-size:12px;
+  opacity:0;pointer-events:none;transition:.25s}
+.toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+
+@media(max-width:900px){
+  .preview{grid-template-columns:1fr;gap:32px}
+  .phone{position:static;margin:0 auto}
+  .principles{grid-template-columns:1fr}
+  .wrap{padding:24px 18px 60px}
+  .hero h1{font-size:30px}
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="hero">
+    <div>
+      <div class="eyebrow">OFM / UI · M36 NAV UPDATE</div>
+      <h1>仪器台</h1>
+      <p>不是给默认 Material 换一套蓝色，而是重定信息层级：状态是主角、数据可复制、分组靠细线。M36 把「模型 / 积分」合成一项、用分段开关切换，腾出的底栏格给网页搜索，从设置的二级页提到一级 dock。点导航切页、点上方的分段、可切深浅主题。</p>
+    </div>
+    <div class="badge">设计方向 · <b>Instrument Panel</b></div>
+  </div>
+
+  <div class="sec">
+    <div class="sec-head"><h2>三条设计取舍</h2><span>为什么长这样</span></div>
+    <div class="principles">
+      <div class="principle">
+        <div class="n">01 / COLOR</div>
+        <h3>暖纸 · 墨 · 朱砂</h3>
+        <p>避开「靛蓝渐变 + 霓虹点缀」的泛 AI 配色。暖纸底降低长时间盯屏的疲劳，墨色承载正文，朱砂只出现在主开关、选中态和状态灯上，面积小但一眼可辨。</p>
+      </div>
+      <div class="principle">
+        <div class="n">02 / HIERARCHY</div>
+        <h3>细线代替卡片套卡片</h3>
+        <p>原版首页每块信息都装进圆角卡片，视线被切碎。新版首屏状态直接摊开，用 1px 细线分组；卡片只留给真正需要成组的对象（渠道账号、模型条目）。</p>
+      </div>
+      <div class="principle">
+        <div class="n">03 / DATA</div>
+        <h3>机器字段与人读文字分离</h3>
+        <p>URL、Key、模型 id、指标数字用等宽 + 大字重；说明文字用系统 sans。Base URL 与 Key 改成整行点击复制，不再需要「一行文字 + 两个按钮」。</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="sec">
+    <div class="sec-head"><h2>界面预览</h2><span>可交互 · 点导航切页 / 点字段复制</span></div>
+    <div class="preview">
+      <div class="phone">
+        <div class="phone-top">
+          <div class="statusbar"><span>9:41</span><span>OFM ● ▮▮▮</span></div>
+          <div class="appbar">
+            <div class="appbar-row">
+              <div class="eyebrow">OFM&nbsp; /&nbsp; LOCAL API</div>
+              <div class="chip"><span class="dot"></span><span>运行中</span><span class="mono" style="color:var(--muted)">:18900</span></div>
+            </div>
+            <div class="title-row">
+              <div><h3 id="pageTitle">概览</h3><div class="sub" id="pageSub">服务状态与接入信息</div></div>
+              <div class="gear"><svg viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round">
+                <path d="M1.5 4.7h15M1.5 9h15M1.5 13.3h15"/><circle cx="12.2" cy="4.7" r="1.9" fill="var(--paper)"/><circle cx="5.8" cy="9" r="1.9" fill="var(--paper)"/><circle cx="10.1" cy="13.3" r="1.9" fill="var(--paper)"/></svg></div>
+            </div>
+          </div>
+        </div>
+        <div class="screen" id="screen"></div>
+        <div class="bottombar" id="bottombar"></div>
+      </div>
+
+      <div class="side">
+        <div class="controls">
+          <button id="btnLight" class="on">浅色</button>
+          <button id="btnDark">深色</button>
+        </div>
+        <h2>色板</h2>
+        <p class="lead">语义状态色不跟随系统动态取色——「运行中 / 失败」在任何机型上必须是同一个意思。</p>
+        <div class="swatch-grid">
+          <div class="swatch"><div class="c" style="background:var(--paper)"></div><div class="t"><b>Paper 背景</b><span id="c1">#F6F4EF</span></div></div>
+          <div class="swatch"><div class="c" style="background:var(--ink)"></div><div class="t"><b>Ink 文字 / 主色</b><span id="c2">#1B2430</span></div></div>
+          <div class="swatch"><div class="c" style="background:var(--accent)"></div><div class="t"><b>Accent 朱砂</b><span id="c3">#B24A2E</span></div></div>
+          <div class="swatch"><div class="c" style="background:var(--line)"></div><div class="t"><b>Line 分隔</b><span id="c4">#DCD8CE</span></div></div>
+          <div class="swatch"><div class="c" style="background:var(--ok)"></div><div class="t"><b>Ok 正常</b><span id="c5">#2E7D5B</span></div></div>
+          <div class="swatch"><div class="c" style="background:var(--bad)"></div><div class="t"><b>Bad 异常</b><span id="c6">#AE3A34</span></div></div>
+        </div>
+
+        <div class="spec">
+          <h2 style="font-size:16px;margin:26px 0 10px">字阶</h2>
+          <div class="typescale">
+            <div><code>display 32/700</code><span style="font-size:26px;font-weight:700;letter-spacing:-.8px">服务运行中</span></div>
+            <div><code>title 20/700</code><span style="font-size:20px;font-weight:700">接入凭据</span></div>
+            <div><code>titleSm 14/600</code><span style="font-size:14px;font-weight:600">连接渠道</span></div>
+            <div><code>body 13/400</code><span style="font-size:13px">第三方客户端填这两项即可</span></div>
+            <div><code>eyebrow 10/700</code><span class="eyebrow" style="color:var(--muted)">运行概览</span></div>
+            <div><code>mono 13</code><span class="mono" style="font-size:13px">ofm-local-key</span></div>
+          </div>
+        </div>
+
+        <div class="spec">
+          <h2 style="font-size:16px;margin:26px 0 10px">规格与可访问性</h2>
+          <table>
+            <tr><th>圆角</th><td>卡片 <b>12dp</b> · 控件 <b>8dp</b> · 标签 <b>5dp</b> · 状态灯全圆</td></tr>
+            <tr><th>间距</th><td>4 / 8 / 12 / 16 / 20 / 22，首页区块间 <b>22dp</b> 形成节奏</td></tr>
+            <tr><th>对比度</th><td>正文 <b>≥ 12:1</b>，次级文字 <b>≥ 5.6:1</b>，朱砂文字 <b>≥ 5.4:1</b>，全部过 WCAG AA</td></tr>
+            <tr><th>触控目标</th><td>导航项 <b>64dp</b>、操作行 <b>56dp</b>、复制字段 <b>48dp</b>，均 ≥ 44dp</td></tr>
+            <tr><th>状态可辨</th><td>状态不只靠颜色：胶囊带同色圆点 + 中文文案，色觉障碍与强光下可读</td></tr>
+            <tr><th>深色</th><td>独立色板，朱砂提亮至 <span class="mono">#ED9A7C</span>，语义色保持一致含义</td></tr>
+          </table>
+        </div>
+
+        <div class="note">
+          <b>M36 改动范围：</b>底栏（<span class="mono">MainActivity.kt</span> 五项重排）、合并页与分段开关（<span class="mono">Screens.kt</span> / <span class="mono">Theme.kt</span> 的 <span class="mono">OfmSegmented</span>）、搜索页（<span class="mono">WebSearchScreen.kt</span> 去掉「返回」改状态摘要条）、底栏新增放大镜图标。设置页里那张「网页搜索」卡片同步删掉，避免同一功能两个入口。<b>色板、字阶、卡片与数据绑定一行未动</b>，五项仍共用同一套组件。
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+<div class="toast" id="toast">已复制</div>
+
+<script>
+const TABS = [
+  {name:'概览', sub:'服务状态与接入信息'},
+  {name:'渠道', sub:'登录渠道与管理账号'},
+  {name:'模型', sub:'模型目录、积分倍率与每日签到'},
+  {name:'用量', sub:'用量看板与运行日志'},
+  {name:'搜索', sub:'第三方接入字段与试搜'}
+];
+/* 顶栏用完整页名，底栏标签要短；只有搜索页两者不同 */
+const TITLES = ['概览','渠道','模型','用量','网页搜索与读取'];
+const ICONS = [
+  '<circle cx="8.5" cy="8.5" r="5.1"/><circle cx="8.5" cy="8.5" r="1.3" fill="currentColor" stroke="none"/><path d="M8.5 8.5 12.2 4.8" stroke-linecap="round"/>',
+  '<circle cx="4" cy="4.8" r="2.2"/><circle cx="12.8" cy="4.8" r="2.2"/><circle cx="8.5" cy="12.8" r="2.2"/><path d="M6.2 4.8h4.4M5.3 6.7l2.2 4.1M11.7 6.7 9.5 10.8"/>',
+  '<circle cx="3.4" cy="4" r=".9" fill="currentColor" stroke="none"/><circle cx="3.4" cy="8.5" r=".9" fill="currentColor" stroke="none"/><circle cx="3.4" cy="13" r=".9" fill="currentColor" stroke="none"/><path d="M6.1 4h8M6.1 8.5h8M6.1 13h8" stroke-linecap="round"/>',
+  '<path d="M1.7 14.3h13.6" stroke-linecap="round"/><path d="M3.8 14V9.3M6.9 14V5.7M10 14V8M13.1 14V4" stroke-linecap="round" stroke-width="1.9"/>',
+  '<circle cx="7.3" cy="7.3" r="4.4"/><path d="M10.6 10.6 14.6 14.6" stroke-linecap="round" stroke-width="1.9"/>'
+];
+const svg = (p) => '<svg viewBox="0 0 17 17" fill="none" stroke="currentColor" stroke-width="1.5">'+p+'</svg>';
+const copyIcon = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="4.8" y="2.2" width="9" height="10" rx="1.5"/><rect x="2" y="4.8" width="9" height="10" rx="1.5" fill="var(--surface)"/></svg>';
+const arrow = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M5.1 3.5 10.9 8l-5.8 4.5"/></svg>';
+
+const PAGES = [];
+PAGES[0] = `
+  <div class="eyebrow">LOCAL API&nbsp; /&nbsp; 本机服务</div>
+  <div class="big-row"><div class="big">服务运行中</div><div class="switch" onclick="toast('服务开关（示意）')"></div></div>
+  <div class="statusline"><span class="dot"></span><span class="mono">http://127.0.0.1:18900/v1&nbsp; ·&nbsp; 已就绪</span></div>
+  <div class="hair"></div>
+  <div class="sec-label"><b>接入凭据</b><span class="eyebrow">点击复制</span></div>
+  <div class="copyfield" onclick="toast('Base URL 已复制')"><div><div class="k">BASE URL</div><div class="v mono">http://127.0.0.1:18900/v1</div></div><div class="cp">${copyIcon}</div></div>
+  <div class="copyfield" onclick="toast('API Key 已复制')"><div><div class="k">API KEY</div><div class="v mono">ofm-local-key</div></div><div class="cp">${copyIcon}</div></div>
+  <div class="hint">第三方客户端填这两项即可，模型列表会自动出现在它的模型选择器里。</div>
+  <div class="hair"></div>
+  <div class="eyebrow">运行概览</div>
+  <div class="metrics">
+    <div class="metric"><div class="num">3</div><div class="lab">账号</div></div><div class="vline"></div>
+    <div class="metric"><div class="num">148</div><div class="lab">模型</div></div><div class="vline"></div>
+    <div class="metric"><div class="num">6</div><div class="lab">渠道</div></div>
+  </div>
+  <div class="hair"></div>
+  <div class="eyebrow">开始使用</div>
+  <div style="height:6px"></div>
+  <div class="linkrow" onclick="go(1)"><div><b>连接渠道</b><small>登录并管理上游账号</small></div><div class="arw">${arrow}</div></div>
+  <div class="linkrow" onclick="go(2)"><div><b>查看模型与积分</b><small>目录、积分倍率与每日签到</small></div><div class="arw">${arrow}</div></div>
+  <div class="linkrow" onclick="go(3)"><div><b>用量与日志</b><small>调用统计和运行状态</small></div><div class="arw">${arrow}</div></div>
+  <div class="linkrow" onclick="go(4)"><div><b>网页搜索</b><small>第三方接入字段与试搜</small></div><div class="arw">${arrow}</div></div>
+  <div class="hair"></div>
+  <div class="eyebrow">最近状态</div>
+  <div class="recent" style="margin-top:6px">3 个账号启用中，142 个远端模型可用</div>
+`;
+PAGES[1] = `
+  <div class="eyebrow">已连接 3 / 可用 6</div>
+  <div class="big" style="font-size:26px;margin-bottom:18px">渠道</div>
+  <div class="card"><div class="top"><div><div class="name">TRAE</div><div class="meta">2 个账号 · 今天 09:12 同步</div></div><span class="pill ok"><i></i>正常</span></div></div>
+  <div class="card"><div class="top"><div><div class="name">Loomy</div><div class="meta">1 个账号 · 等待回调</div></div><span class="pill wait"><i></i>登录中</span></div></div>
+  <div class="card"><div class="top"><div><div class="name">ZCode</div><div class="meta">凭据已过期，需重新连接</div></div><span class="pill bad"><i></i>需重新登录</span></div></div>
+  <div class="card" style="border-style:dashed;text-align:center;color:var(--muted);font-size:12.5px">+ 添加渠道</div>
+  <div class="hint" style="margin-top:12px">状态用「圆点 + 中文」双编码，不只靠颜色区分。</div>
+`;
+/* 模型与积分合并页：分段开关切两段。签到区独占内容区，不会被长列表回收掉状态。 */
+const MODELS_BODY = `
+  <div class="eyebrow">148 个模型 · 6 个渠道</div>
+  <div class="card"><div class="top"><div style="min-width:0"><div class="name"><span class="pill" style="margin-right:6px">TRAE</span> Doubao-Seed-Code</div><div class="meta mono" style="font-size:10.5px">trae/Doubao-Seed-Code</div></div><div class="mono" style="font-size:14px;font-weight:700">×0.08</div></div>
+    <div style="display:flex;gap:6px;margin-top:12px;flex-wrap:wrap"><span class="pill">推理</span><span class="pill">图片</span><span class="pill">128K</span><span class="pill">Light / High</span></div></div>
+  <div class="card"><div class="top"><div><div class="name"><span class="pill" style="margin-right:6px">Loomy</span> Claude-Sonnet-4.5</div><div class="meta mono" style="font-size:10.5px">loomy/claude-sonnet-4-5</div></div><div class="mono" style="font-size:14px;font-weight:700">×1.00</div></div>
+    <div style="display:flex;gap:6px;margin-top:12px"><span class="pill">推理</span><span class="pill">200K</span></div></div>
+  <div class="card"><div class="top"><div><div class="name"><span class="pill" style="margin-right:6px">MiniMax</span> M2</div><div class="meta mono" style="font-size:10.5px">minimax/MiniMax-M2</div></div><div class="mono" style="font-size:14px;font-weight:700;color:var(--ok)">免费</div></div>
+    <div style="display:flex;gap:6px;margin-top:12px"><span class="pill">推理</span><span class="pill">Extra Light</span></div></div>
+  <div class="hint" style="margin-top:12px">×N = 每次调用消耗 N 倍积分；「原 ×Y」是当前活动折扣前的价格。</div>
+`;
+const CREDITS_BODY = `
+  <div class="eyebrow">每日签到 · 余额</div>
+  <div class="card"><div class="eyebrow">今日已领</div><div style="font-size:34px;font-weight:700;letter-spacing:-1px;margin:8px 0 2px">1,280</div><div class="hint">3 个渠道签到成功，2 个无可领额度</div>
+    <div class="bar"><i style="width:68%"></i></div></div>
+  <div class="card"><div class="sec-label"><b>渠道余额</b></div>
+    <div class="kv"><span>TRAE</span><span class="mono">8,420</span></div>
+    <div class="kv"><span>Loomy</span><span class="mono">1,280</span></div>
+    <div class="kv"><span>ZCode</span><span class="mono">360</span></div></div>
+  <div class="card"><div class="eyebrow">签到日志</div><div class="hint" style="margin-top:8px">按天分片、脱敏记录，可一键复制报告排查。</div></div>
+`;
+let seg = 0;   // 0 模型目录 / 1 签到积分
+function modelPage(){
+  const bar = `<div class="segment">
+    <div class="${seg===0?'on':''}" onclick="setSeg(0)">模型目录</div>
+    <div class="${seg===1?'on':''}" onclick="setSeg(1)">签到积分</div></div>`;
+  return bar + (seg===0 ? MODELS_BODY : CREDITS_BODY);
+}
+PAGES[3] = `
+  <div class="eyebrow">最近 7 天</div>
+  <div class="card"><div class="eyebrow">总请求</div><div style="font-size:34px;font-weight:700;letter-spacing:-1px;margin:8px 0 2px">2,417</div>
+    <div class="hint">成功率 99.2% · 平均 238ms</div>
+    <div class="bar"><i style="width:82%"></i></div></div>
+  <div class="card"><div class="sec-label"><b>Tokens</b></div>
+    <div class="kv"><span>输入</span><span class="mono">1.84M</span></div>
+    <div class="kv"><span>输出</span><span class="mono">412K</span></div>
+    <div class="kv"><span>缓存命中</span><span class="mono">31%</span></div></div>
+  <div class="card"><div class="eyebrow">运行日志</div>
+    <div class="kv"><span class="pill ok"><i></i>200</span><span class="mono" style="font-size:11px">/v1/chat/completions · 238ms</span></div>
+    <div class="kv"><span class="pill ok"><i></i>200</span><span class="mono" style="font-size:11px">/v1/search · 219ms</span></div>
+    <div class="kv"><span class="pill bad"><i></i>401</span><span class="mono" style="font-size:11px">/v1/read · 缺少 Key</span></div></div>
+`;
+/* 网页搜索：从设置二级页提到 dock 一级页，页面顶部是状态摘要条而不是「返回」 */
+PAGES[4] = `
+  <div class="sec-label" style="margin-bottom:14px"><span class="eyebrow">WEB SEARCH / READ</span><span class="pill ok"><i></i>已开启</span></div>
+  <div class="card">
+    <div class="sec-label"><b>第三方怎么填</b><span class="eyebrow">点击复制</span></div>
+    <div class="copyfield" onclick="toast('接口地址已复制')"><div><div class="k">接口地址</div><div class="v mono" style="font-size:11px">http://127.0.0.1:18900/v1/search</div></div><div class="cp">${copyIcon}</div></div>
+    <div class="copyfield" onclick="toast('API Key 已复制')"><div><div class="k">API KEY</div><div class="v mono">ofm-local-key</div></div><div class="cp">${copyIcon}</div></div>
+    <div class="copyfield" onclick="toast('请求模板已复制')"><div><div class="k">请求模板</div><div class="v mono" style="font-size:10.5px">{"query":"{{query_json}}","count":{{count}}}</div></div><div class="cp">${copyIcon}</div></div>
+    <div class="hint">照着填进第三方客户端的自定义搜索里；字段由本机服务按真实端口给出。</div>
+  </div>
+  <div class="card">
+    <div class="sec-label"><b>试搜</b><span class="pill">Bing · 5 条</span></div>
+    <div class="kv"><span>今天 上海 天气</span><span class="mono">219ms</span></div>
+    <div class="hint" style="margin-top:10px">读取正文用 /v1/read；MCP 客户端填 /mcp。关闭时三个接口都返回 503。</div>
+  </div>
+`;
+
+let cur = 0;
+function renderBar(){
+  document.getElementById('bottombar').innerHTML = TABS.map((t,i)=>
+    `<div class="tab ${i===cur?'on':''}" onclick="go(${i})">
+       <div class="mark"></div><div class="ico">${svg(ICONS[i])}</div><span>${t.name}</span>
+     </div>`).join('');
+}
+function render(){
+  const s = document.getElementById('screen');
+  s.innerHTML = (cur===2 ? modelPage() : PAGES[cur]);
+  s.scrollTop = 0;
+  document.getElementById('pageTitle').textContent = TITLES[cur];
+  document.getElementById('pageSub').textContent = TABS[cur].sub;
+  renderBar();
+}
+function go(i){ cur=i; render(); }
+function setSeg(i){ seg=i; render(); }
+let toastTimer;
+function toast(msg){
+  const el=document.getElementById('toast');
+  el.textContent=msg; el.classList.add('show');
+  clearTimeout(toastTimer); toastTimer=setTimeout(()=>el.classList.remove('show'),1500);
+}
+const LIGHT=['#F6F4EF','#1B2430','#B24A2E','#DCD8CE','#2E7D5B','#AE3A34'];
+const DARK=['#12151A','#ECE9E1','#ED9A7C','#3A404B','#6FCBA3','#F08C85'];
+function theme(mode){
+  document.documentElement.setAttribute('data-theme',mode);
+  const c = mode==='dark'?DARK:LIGHT;
+  c.forEach((v,i)=>document.getElementById('c'+(i+1)).textContent=v);
+  document.getElementById('btnLight').classList.toggle('on',mode==='light');
+  document.getElementById('btnDark').classList.toggle('on',mode==='dark');
+}
+document.getElementById('btnLight').onclick=()=>theme('light');
+document.getElementById('btnDark').onclick=()=>theme('dark');
+// 初始状态同步：跟随系统偏好，或页面上已写死的 data-theme（静态导出时用）
+function initTheme(){
+  const preset = document.documentElement.getAttribute('data-theme');
+  const prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+  theme(preset || (prefersDark ? 'dark' : 'light'));
+}
+renderBar(); go(0); initTheme();
+</script>
+</body>
+</html>
