@@ -17,7 +17,7 @@ object NodeRuntime {
     private const val ASSET_DIR = "nodejs-project"
     private const val MARKER = "version.txt"
     /** assets 里没有 version.txt 时的兜底（老版本兼容） */
-    private const val FALLBACK_VERSION = "0.1.0"
+    private const val FALLBACK_VERSION = "0.2.0"
 
     /** 读 APK 内置的内容指纹。JS 一变这个值就变，覆盖安装才会重新解包。 */
     private fun assetVersion(context: Context): String = try {

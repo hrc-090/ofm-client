@@ -320,7 +320,9 @@ fun ChannelsScreen(
                         }
                     }
                     if (p.loginMode == "none") {
-                        Pill("内置")
+                        // 内置回显和 Kilo 免费池都不需要账号，用不同措辞区分：
+                        // 「免费」提示这是真的外部免费额度，不是本地假数据。
+                        Pill(if (p.id == "kilo") "免费" else "内置", if (p.id == "kilo") StatusTone.Ok else null)
                     } else {
                         FilledTonalButton(onClick = { onLogin(p) }, enabled = running) {
                             Text("连接", fontSize = 12.sp)
@@ -722,7 +724,13 @@ fun SettingsScreen(
     onNetworkDiagnose: () -> Unit,
     onChatDiagnose: () -> Unit,
     onToolDiagnose: () -> Unit,
-    onRestart: () -> Unit
+    onRestart: () -> Unit,
+    tokenSaverRtk: Boolean = true,
+    tokenSaverCaveman: String = "off",
+    effortBudget: Boolean = false,
+    onToggleRtk: (Boolean) -> Unit = {},
+    onSetCaveman: (String) -> Unit = {},
+    onToggleEffortBudget: (Boolean) -> Unit = {}
 ) {
     val context = LocalContext.current
     LazyColumn(
@@ -818,6 +826,68 @@ fun SettingsScreen(
 
         item {
             OfmCard {
+                Text("省 Token", style = MaterialTheme.typography.titleSmall)
+                Text(
+                    "只压缩「工具输出」（git diff / 构建日志 / grep / ls / tree），" +
+                        "系统提示、用户消息与回答正文一律不动；压缩失败时原样发送。",
+                    fontSize = 11.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text("压缩工具输出", fontSize = 13.sp)
+                        Text(
+                            "和上游 RTK 同一套规则，实测长 diff 可去掉约九成",
+                            fontSize = 10.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    Switch(
+                        checked = tokenSaverRtk,
+                        onCheckedChange = onToggleRtk,
+                        colors = SwitchDefaults.colors(
+                            checkedThumbColor = MaterialTheme.colorScheme.tertiary,
+                            checkedTrackColor = MaterialTheme.colorScheme.tertiary.copy(alpha = 0.32f)
+                        )
+                    )
+                }
+                Text("回答风格", fontSize = 12.sp)
+                val cavemanLevels = listOf("off", "lite", "full", "wenyan")
+                val cavemanLabels = listOf("默认", "精简", "极简", "文言")
+                val cavemanIndex = cavemanLevels.indexOf(tokenSaverCaveman).coerceAtLeast(0)
+                OfmSegmented(
+                    items = cavemanLabels,
+                    selected = cavemanIndex,
+                    onSelect = { i -> onSetCaveman(cavemanLevels[i]) }
+                )
+                Text(
+                    "用更少的词回答，省的是输出 token；代码、命令、报错保持原样。",
+                    fontSize = 10.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text("思考预算阶梯", fontSize = 13.sp)
+                        Text(
+                            "模型没声明档位时，把 Light / Balanced / Deep 换算成输出预算（2048 / 8192 / 上限）",
+                            fontSize = 10.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    Switch(
+                        checked = effortBudget,
+                        onCheckedChange = onToggleEffortBudget,
+                        colors = SwitchDefaults.colors(
+                            checkedThumbColor = MaterialTheme.colorScheme.tertiary,
+                            checkedTrackColor = MaterialTheme.colorScheme.tertiary.copy(alpha = 0.32f)
+                        )
+                    )
+                }
+            }
+        }
+
+        item {
+            OfmCard {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) {
                         Text("转发服务", style = MaterialTheme.typography.titleSmall)
@@ -850,7 +920,7 @@ fun SettingsScreen(
             OfmCard {
                 Text("关于", style = MaterialTheme.typography.titleSmall)
                 Text(
-                    "OFM 渠道 0.1.0 · 内嵌 Node 转发，所有流量只在本机与上游之间",
+                    "OFM 渠道 0.2.0 · 内嵌 Node 转发，所有流量只在本机与上游之间",
                     fontSize = 11.sp,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )

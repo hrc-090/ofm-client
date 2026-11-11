@@ -1,0 +1,11 @@
+<svg width="512" height="512" viewBox="0 0 108 108" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="回环 Loop 单色前景">
+  <title>回环 · Loop</title>
+  <!-- 主环周长 157.08：实线 135 + 缺口 22.08；旋转 -20° 使缺口中心落在右上 45° -->
+  <g id="loop-ring">
+    <circle cx="54" cy="54" r="25" fill="none" stroke="#F6F4EF" stroke-width="6.5"
+            stroke-linecap="round" stroke-dasharray="135 22.08" transform="rotate(-20 54 54)"/>
+  </g>
+  <!-- 内侧刻度弧：仪器台语言，弱化处理 -->
+  <!-- 活跃端口：朱砂点落在缺口中心，r=25 / -45° -->
+  <g id="port"><circle cx="71.68" cy="36.32" r="6.0" fill="#E8835F"/></g>
+</svg>

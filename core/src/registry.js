@@ -10,6 +10,7 @@ import { LoomyChannel } from './channels/loomy/index.js';
 import { RaccoonChannel } from './channels/raccoon/index.js';
 import { MiniMaxChannel } from './channels/minimax/index.js';
 import { ZCodeChannel } from './channels/zcode/index.js';
+import { KiloChannel } from './channels/kilo/index.js';
 import { MockChannel } from './channels/mock.js';
 
 export function createRegistry() {
@@ -24,7 +25,8 @@ export function createRegistry() {
     new LoomyChannel(),
     new RaccoonChannel(),
     new MiniMaxChannel(),
-    new ZCodeChannel()
+    new ZCodeChannel(),
+    new KiloChannel()
   ]) {
     channels.set(ch.id, ch);
   }

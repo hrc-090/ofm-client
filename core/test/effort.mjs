@@ -7,6 +7,9 @@ import assert from 'node:assert/strict';
 import { normalizeReasoningOptions, parseCatalog, toModelEntries } from '../src/channels/trae/models.js';
 import { parseModelsResponse } from '../src/channels/minimax/index.js';
 import { chatStream, createModelService } from '../src/dispatch.js';
+import { effortFromBudget, thinkingEffort, normalizeEffortAgainstMenu } from '../src/effort.js';
+import { normalizeChatBody } from '../src/convert/openai-chat.js';
+import { anthropicToInternal } from '../src/convert/anthropic.js';
 
 let passed = 0;
 const ok = (name, cond, detail = '') => {
@@ -46,7 +49,9 @@ function fakeChannel(captured) {
           reasoningOptions: [{ value: 'high', label: '高' }]
         }
       ];
-    }
+    },
+    // 调度层用 modelMeta 把档位对齐到目录原始值
+    modelMeta: (id) => (id === 'm' ? { reasoningOptions: [{ value: 'high', label: '高' }] } : null)
   };
 }
 
@@ -259,6 +264,98 @@ await test('客户端显式传了档位就绝不覆盖', async () => {
 await test('settings 缺失也不炸', async () => {
   const req = await capture(undefined);
   ok('无 settings 时正常出正文', req.reasoningEffort === undefined);
+});
+
+/* ───────── 4. 第三方：读得到 / 设得动（M39） ───────── */
+
+await test('目录下发三种档位形状，第三方按认识的字段读', async () => {
+  const ch = {
+    ...fakeChannel([]),
+    id: 'multi',
+    listModels: async () => [{
+      id: 'm', displayName: 'M', reasoning: true,
+      efforts: ['xhigh', 'high', 'low', 'max', 'medium'],
+      defaultEffort: 'high'
+    }]
+  };
+  const store = { settings: { accounts: [], disabledModels: {}, modelEffort: {} } };
+  const svc = createModelService({ registry: registryOf(ch), store });
+  const m = (await svc.listAll()).find((x) => x.id === 'multi/m');
+  ok('reasoning_options 仍在', Array.isArray(m.reasoning_options) && m.reasoning_options.length === 5);
+  ok('扁平值数组', m.supported_reasoning_efforts.join(',') === 'xhigh,high,low,max,medium');
+  ok('默认档位（原值）', m.default_reasoning_effort === 'high');
+  ok('OpenRouter 形状', m.reasoning?.supported_efforts?.length === 5);
+  ok('默认档位也进 reasoning', m.reasoning?.default_effort === 'high');
+  ok('supported_parameters 含 reasoning', m.supported_parameters.includes('reasoning'));
+});
+
+await test('默认档位不在菜单里时不下发（不猜）', async () => {
+  const ch = {
+    ...fakeChannel([]),
+    id: 'd',
+    listModels: async () => [{ id: 'm', displayName: 'M', reasoning: true, efforts: ['low', 'high'], defaultEffort: 'xhigh' }]
+  };
+  const store = { settings: { accounts: [], disabledModels: {}, modelEffort: {} } };
+  const svc = createModelService({ registry: registryOf(ch), store });
+  const m = (await svc.listAll()).find((x) => x.id === 'd/m');
+  ok('没有 default_reasoning_effort', m.default_reasoning_effort === undefined);
+  ok('reasoning 里也没有', m.reasoning?.default_effort === undefined);
+});
+
+await test('normalizeEffortAgainstMenu：大小写 / 同义 / 未知值', () => {
+  ok('大小写对齐', normalizeEffortAgainstMenu('HIGH', ['high', 'low']) === 'high');
+  ok('同义档位落到菜单值', normalizeEffortAgainstMenu('deep', ['low', 'max']) === 'max');
+  ok('medium → balanced 同族', normalizeEffortAgainstMenu('medium', ['low', 'balanced', 'max']) === 'balanced');
+  ok('未知值原样放行', normalizeEffortAgainstMenu('turbo', ['low', 'high']) === 'turbo');
+  ok('空菜单不动', normalizeEffortAgainstMenu('high', []) === 'high');
+  ok('非字符串安全', normalizeEffortAgainstMenu(undefined, ['high']) === undefined);
+});
+
+await test('thinking.budget_tokens → 三档', () => {
+  ok('2000 → light', effortFromBudget(2000) === 'light');
+  ok('8000 → balanced', effortFromBudget(8000) === 'balanced');
+  ok('32000 → deep', effortFromBudget(32000) === 'deep');
+  ok('非法预算 → null', effortFromBudget('abc') === null);
+  ok('enabled 无预算 → high', thinkingEffort({ thinking: { type: 'enabled' } }) === 'high');
+  ok('disabled 不干预', thinkingEffort({ thinking: { type: 'disabled', budget_tokens: 4096 } }) === null);
+  ok('没有 thinking 字段', thinkingEffort({}) === null);
+});
+
+await test('OpenAI chat：thinking.budget_tokens 也能设档位', () => {
+  const b = normalizeChatBody({ messages: [{ role: 'user', content: 'hi' }], thinking: { type: 'enabled', budget_tokens: 8000 } });
+  ok('8000 → balanced', b.reasoningEffort === 'balanced', String(b.reasoningEffort));
+
+  const b2 = normalizeChatBody({ messages: [], reasoning_effort: 'HIGH' });
+  ok('显式字段优先且原样保留大小写', b2.reasoningEffort === 'HIGH');
+});
+
+await test('Anthropic：output_config.effort 优先，其次预算', () => {
+  const a = anthropicToInternal({
+    messages: [{ role: 'user', content: 'hi' }],
+    output_config: { effort: 'xhigh' },
+    thinking: { type: 'enabled', budget_tokens: 2000 }
+  });
+  ok('显式 effort 生效', a.reasoningEffort === 'xhigh', String(a.reasoningEffort));
+
+  const b = anthropicToInternal({
+    messages: [{ role: 'user', content: 'hi' }],
+    thinking: { type: 'enabled', budget_tokens: 20000 }
+  });
+  ok('预算换算生效（不再写死 high）', b.reasoningEffort === 'deep', String(b.reasoningEffort));
+
+  const c = anthropicToInternal({ messages: [{ role: 'user', content: 'hi' }] });
+  ok('没设就不干预', c.reasoningEffort === undefined);
+});
+
+await test('调度层：客户端写的档位会对齐到目录原始值', async () => {
+  const req = await capture({}, { reasoningEffort: 'HIGH' });
+  ok('大小写被对齐', req.reasoningEffort === 'high', String(req.reasoningEffort));
+
+  const req2 = await capture({}, { reasoningEffort: 'deep' });
+  ok('同义档位落到 high', req2.reasoningEffort === 'high', String(req2.reasoningEffort));
+
+  const req3 = await capture({}, { reasoningEffort: 'turbo' });
+  ok('未知值原样透传，不拦', req3.reasoningEffort === 'turbo');
 });
 
 /* ───────── 汇总 ───────── */

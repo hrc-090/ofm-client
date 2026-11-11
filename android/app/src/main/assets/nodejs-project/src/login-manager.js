@@ -142,6 +142,26 @@ export function createLoginManager({ store, registry, settings, log = console, o
       return { done: true, success: true, account };
     },
 
+    /**
+     * Cookie 导入（Raccoon）：App 在 WebView 里取到官网登录态后回传。
+     * 与 callback 同样的失败语义 —— 失败就删占位账号，不留幽灵。
+     */
+    async cookie(accountId, cookieText) {
+      const rec = sessions.get(accountId);
+      if (!rec) throw new OfmError(Codes.INVALID_REQUEST, '登录会话不存在或已过期');
+      if (!rec.channel.login.cookie) {
+        throw new OfmError(Codes.UNSUPPORTED, `${rec.channel.displayName} 不支持 Cookie 导入`);
+      }
+      const r = await rec.channel.login.cookie(rec.session, cookieText, { store, settings });
+      if (!r?.success) {
+        store.removeAccount(accountId);
+        sessions.delete(accountId);
+        throw new OfmError(Codes.AUTH, r?.error || '登录态无效');
+      }
+      const account = finalize(accountId, r);
+      return { done: true, success: true, account };
+    },
+
     async smsSend(accountId, phone) {
       const rec = sessions.get(accountId);
       if (!rec?.channel.login.sendCode) throw new OfmError(Codes.UNSUPPORTED, '该渠道不支持短信登录');

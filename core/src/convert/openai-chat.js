@@ -3,6 +3,7 @@
  */
 import { normalizeContent, normalizeRole } from '../canonical.js';
 import { OfmError, Codes } from '../errors.js';
+import { explicitEffort, thinkingEffort } from '../effort.js';
 
 export function normalizeChatBody(body) {
   if (body.messages !== undefined && !Array.isArray(body.messages)) {
@@ -41,7 +42,8 @@ export function normalizeChatBody(body) {
     temperature: body.temperature,
     topP: body.top_p,
     stop: body.stop,
-    reasoningEffort: body.reasoning_effort,
+    // 三个入口都收：reasoning_effort / reasoning.effort / thinking.budget_tokens
+    reasoningEffort: explicitEffort(body) ?? thinkingEffort(body),
     stream: body.stream === true,
     user: body.user,
     parallelToolCalls: body.parallel_tool_calls

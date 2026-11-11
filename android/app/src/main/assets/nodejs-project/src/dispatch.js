@@ -8,6 +8,7 @@ import { sleep } from './util.js';
 import { splitModelId } from './registry.js';
 import { resolveModelId } from './model-label.js';
 import { normalizeReasoningOptions } from './reasoning-options.js';
+import { budgetForEffort, effortBudgetEnabled, normalizeEffortAgainstMenu } from './effort.js';
 
 const MAX_ACCOUNTS_PER_REQUEST = 3;
 const MAX_QUEUE_WAIT_MS = 180000;
@@ -30,6 +31,45 @@ export async function* chatStream({ registry, store, settings, req, signal, trac
     if (typeof picked === 'string' && picked) req = { ...req, reasoningEffort: picked };
   }
   if (trace) Object.assign(trace, { provider, modelId, channel: label });
+
+  // 模型元数据：预算阶梯与用量窗口保护都要用。取一次，别重复翻目录。
+  const meta =
+    (typeof channel.modelMeta === 'function' && channel.modelMeta(modelId)) ||
+    channel.modelIndex?.get?.(modelId) ||
+    null;
+  if (trace && meta) {
+    const window = Number(meta.contextWindow ?? meta.maxContextWindow);
+    if (Number.isFinite(window) && window > 0) trace.contextWindow = window;
+  }
+
+  // 客户端写的档位对不上目录时先做同义/大小写对齐：
+  // 第三方发 `HIGH`、`high`、`deep` 都可能，直接原样透传会被上游判非法。
+  if (req.reasoningEffort) {
+    const menu = normalizeReasoningOptions(
+      meta?.reasoningOptions ?? meta?.efforts ?? meta?.effortOptions ?? meta?.effort_options
+    ).map((o) => o.value);
+    const aligned = normalizeEffortAgainstMenu(req.reasoningEffort, menu);
+    if (aligned !== req.reasoningEffort) req = { ...req, reasoningEffort: aligned };
+  }
+  if (trace && req.reasoningEffort) trace.reasoningEffort = req.reasoningEffort;
+
+  // 预算阶梯（默认关，设置项 effortBudget）：
+  // 只对**没有声明档位菜单**的模型生效 —— 声明了菜单的模型必须原值下发，
+  // 用它不认识的 max_tokens 反推档位会被上游回 400。
+  // 客户端显式给了 max_tokens 时一律不覆盖。
+  if (effortBudgetEnabled(settings) && req.reasoningEffort && !req.maxTokens) {
+    const declared = meta?.reasoningOptions || meta?.efforts || meta?.effort_options;
+    if (!declared || !Array.isArray(declared) || declared.length === 0) {
+      const budget = budgetForEffort(req.reasoningEffort, {
+        modelMaxOutput: meta?.maxOutputTokens,
+        alwaysThinking: meta?.alwaysThinking === true
+      });
+      if (budget) {
+        req = { ...req, maxTokens: budget };
+        if (trace) trace.maxTokensFromEffort = budget;
+      }
+    }
+  }
 
   if (channel.requiresAccount === false) {
     let content = 0;
@@ -297,6 +337,12 @@ export function createModelService({ registry, store, log }) {
           const reasoningOptions = normalizeReasoningOptions(
             m.reasoningOptions ?? m.efforts ?? m.effortOptions ?? m.effort_options
           );
+          // 默认档位：只认目录明确声明的那个，且必须真在菜单里；
+          // 猜一个上游不认的值，第三方的第一次请求就会 400。
+          const declaredDefault =
+            typeof m.defaultEffort === 'string'
+              ? reasoningOptions.find((o) => o.value.toLowerCase() === m.defaultEffort.toLowerCase())?.value
+              : undefined;
           out.push({
             id,
             object: 'model',
@@ -309,8 +355,23 @@ export function createModelService({ registry, store, log }) {
             context_window: m.contextWindow,
             supports_images: m.multimodal === true,
             supports_reasoning: m.reasoning === true,
-            // 档位值原样来自上游目录，App 只做展示与回填，不做任何映射
-            ...(reasoningOptions.length ? { reasoning_options: reasoningOptions.slice(0, MAX_EFFORT) } : {}),
+            // 思考档位：同一份数据给三种常见形状，第三方按自己认识的字段读。
+            //   reasoning_options           —— 本仓库/App 用（带中文标签）
+            //   supported_reasoning_efforts —— 扁平值数组，最省事
+            //   reasoning{...} + supported_parameters —— OpenRouter / LiteLLM 形状
+            // 档位值原样来自上游目录，App 只做展示与回填，不做任何映射。
+            ...(reasoningOptions.length
+              ? {
+                  reasoning_options: reasoningOptions.slice(0, MAX_EFFORT),
+                  supported_reasoning_efforts: reasoningOptions.slice(0, MAX_EFFORT).map((o) => o.value),
+                  ...(declaredDefault ? { default_reasoning_effort: declaredDefault } : {}),
+                  reasoning: {
+                    supported_efforts: reasoningOptions.slice(0, MAX_EFFORT).map((o) => o.value),
+                    ...(declaredDefault ? { default_effort: declaredDefault } : {})
+                  },
+                  supported_parameters: ['reasoning', 'reasoning_effort']
+                }
+              : {}),
             // 积分消耗倍率（1 = 原价，0.5 = 半价，0 = 免费）。
             // 用 != null 判断：0 是合法值，不能靠真值过滤。
             ...(m.creditsRate != null ? { credits_rate: m.creditsRate } : {}),

@@ -218,19 +218,16 @@ const chatBody = (stream) => JSON.stringify({
 });
 
 let srv = await startApp(makeRegistry(EMPTY_STREAM));
-await test('流式：零内容时错误以可见正文下发（不再一片空白）', async () => {
+await test('流式：零内容返回 502（头未提交时可回真实状态码）', async () => {
   const r = await fetch(`${srv.base}/v1/chat/completions`, {
     method: 'POST', headers: authHeaders(srv.key), body: chatBody(true)
   });
   const text = await r.text();
-  ok('HTTP 200（流已建立）', r.status === 200);
-  const frames = text.split('\n').filter((l) => l.startsWith('data: {')).map((l) => JSON.parse(l.slice(6)));
-  const content = frames.map((f) => f.choices?.[0]?.delta?.content || '').join('');
-  ok('有可见错误文字', content.includes('[OFM 错误]'));
-  ok('错误文字里带根因', /没有任何正文/.test(content));
-  ok('仍保留结构化错误帧', text.includes('"code":"EMPTY_REPLY"'));
-  ok('仍有 [DONE]', text.includes('data: [DONE]'));
-  ok('finish_reason 非空', frames.some((f) => f.choices?.[0]?.finish_reason));
+  // 首个正文帧之前失败：响应头还没发出去，外层按真实状态码回包。
+  // 这是「失败返回真实状态码」改造后的预期 —— 以前是 200 + 流内错误帧。
+  ok('HTTP 502', r.status === 502);
+  ok('错误文字里带根因', /没有任何正文/.test(text));
+  ok('保留结构化错误码', text.includes('EMPTY_REPLY'));
 });
 
 await test('非流式：零内容返回 502 + EMPTY_REPLY，而非 200 空 completion', async () => {

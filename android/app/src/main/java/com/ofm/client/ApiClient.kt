@@ -61,7 +61,8 @@ object ApiClient {
     // ── 用量看板 / 运行日志（Node 侧 /api/usage/*）──
     fun usageSummary(days: Int): JSONObject = get("/api/usage/summary?days=$days")
 
-    fun usageLog(limit: Int): JSONObject = get("/api/usage/log?limit=$limit")
+    fun usageLog(limit: Int, days: Int = 0): JSONObject =
+        get("/api/usage/log?limit=$limit&days=$days")
 
     fun clearUsage(): JSONObject = delete("/api/usage")
 

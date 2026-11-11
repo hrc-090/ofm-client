@@ -4,6 +4,7 @@
  */
 import { normalizeContent, estimateTokens } from '../canonical.js';
 import { cachedOrNull } from '../usage-cache.js';
+import { explicitEffort } from '../effort.js';
 
 export function responsesToInternal(body) {
   const messages = [];
@@ -51,7 +52,7 @@ export function responsesToInternal(body) {
     maxTokens: body.max_output_tokens ?? null,
     temperature: body.temperature,
     topP: body.top_p,
-    reasoningEffort: body.reasoning?.effort,
+    reasoningEffort: explicitEffort(body),
     stream: body.stream === true
   };
 }

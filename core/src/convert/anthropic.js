@@ -5,6 +5,7 @@
 import { normalizeContent, estimateTokens, lastUserText } from '../canonical.js';
 import { normalizeTools } from './openai-chat.js';
 import { OfmError, Codes } from '../errors.js';
+import { explicitEffort, thinkingEffort } from '../effort.js';
 import { cachedOrNull } from '../usage-cache.js';
 
 export function anthropicToInternal(body) {
@@ -59,10 +60,22 @@ export function anthropicToInternal(body) {
     temperature: body.temperature,
     topP: body.top_p,
     stop: body.stop_sequences,
-    reasoningEffort: body.thinking?.type === 'enabled' ? 'high' : undefined,
+    // 档位来源（优先级从高到低）：
+    //   ① output_config.effort —— Anthropic 新版显式档位
+    //   ② reasoning_effort / reasoning.effort —— 兼容壳常直接透这个
+    //   ③ thinking.budget_tokens —— 只能按预算换算成三档
+    // 以前只有 `thinking.type==='enabled' → 'high'`，等于「怎么设都是 high」。
+    reasoningEffort:
+      anthropicEffort(body) || (body.thinking?.type === 'enabled' ? 'high' : undefined),
     thinkingBudget: body.thinking?.type === 'enabled' ? body.thinking.budget_tokens : undefined,
     stream: body.stream === true
   };
+}
+
+function anthropicEffort(body) {
+  const direct = body?.output_config?.effort;
+  if (typeof direct === 'string' && direct.trim()) return direct.trim();
+  return explicitEffort(body) ?? thinkingEffort(body);
 }
 
 function normalizeAnthropicToolChoice(choice) {

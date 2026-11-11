@@ -10,7 +10,7 @@
  *  3. tool_calls 的 index 要重新从 0 编号 —— 上游的 index 是「块序号」，
  *     思考/正文块会占号，客户端按 index 累加就会得到稀疏数组。
  */
-import { openUpstream, looksLikeSse } from './http-client.js';
+import { openUpstream, looksLikeSse, sniffBody, htmlPageError } from './http-client.js';
 import { OfmError, Codes } from './errors.js';
 import { tryJson } from './util.js';
 import { attachCacheTokens } from './usage-cache.js';
@@ -58,9 +58,17 @@ export async function* openAiCompatStream(options) {
   if (res.status < 200 || res.status >= 300) {
     const text = await res.text();
     if (onHttpError) throw onHttpError(res.status, text, res.headers);
+    // 空 5xx body 没有信封可分类：`HTTP 502` 对调用方不是一个能行动的答案。
+    if (res.status >= 500 && !String(text).trim()) {
+      throw new OfmError(
+        Codes.UPSTREAM,
+        `上游 HTTP ${res.status} 且响应体为空：网关自己出错，没有留下可读的原因。稍后重试通常有效。`,
+        { status: res.status }
+      );
+    }
     throw new OfmError(
       res.status === 401 || res.status === 403 ? Codes.AUTH : res.status === 429 ? Codes.QUOTA_EXCEEDED : Codes.UPSTREAM,
-      `上游 HTTP ${res.status}: ${text.slice(0, 200)}`,
+      `上游 HTTP ${res.status}: ${String(text).slice(0, 200)}`,
       { status: res.status }
     );
   }
@@ -83,6 +91,7 @@ export async function* openAiCompatStream(options) {
     for await (const chunk of iterator) rest += decoder.decode(chunk, { stream: true });
     rest += decoder.decode();
     const full = head + rest;
+    if (sniffBody(full) === 'html') throw htmlPageError(res.status, full);
     const parsed = tryJson(full, undefined);
     if (parsed === undefined) {
       throw new OfmError(Codes.UPSTREAM, `上游返回了无法解析的响应: ${full.slice(0, 200)}`);

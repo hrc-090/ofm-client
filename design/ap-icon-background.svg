@@ -1,16 +1,14 @@
-<svg width="512" height="512" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="AP 图标背景">
-  <!-- adaptive icon 背景：108dp 全幅渐变，不加圆角，由系统遮罩裁形状 -->
+<svg width="512" height="512" viewBox="0 0 108 108" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="OFM 图标背景">
+  <title>OFM 图标背景 · 墨</title>
   <defs>
     <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="#6366F1"/>
-      <stop offset="0.55" stop-color="#7C3AED"/>
-      <stop offset="1" stop-color="#4338CA"/>
+      <stop offset="0" stop-color="#202C3A"/><stop offset="1" stop-color="#141D28"/>
     </linearGradient>
-    <radialGradient id="halo" cx="0.5" cy="0.38" r="0.65">
-      <stop offset="0" stop-color="#FFFFFF" stop-opacity="0.20"/>
-      <stop offset="1" stop-color="#FFFFFF" stop-opacity="0"/>
+    <radialGradient id="glow" cx="0.28" cy="0.22" r="0.85">
+      <stop offset="0" stop-color="#F6F4EF" stop-opacity="0.10"/>
+      <stop offset="1" stop-color="#F6F4EF" stop-opacity="0"/>
     </radialGradient>
   </defs>
-  <rect width="512" height="512" fill="url(#bg)"/>
-  <rect width="512" height="512" fill="url(#halo)"/>
+  <rect id="base" width="108" height="108" fill="url(#bg)"/>
+  <rect id="sheen" width="108" height="108" fill="url(#glow)"/>
 </svg>

@@ -36,17 +36,23 @@ import { runNetworkDiagnose } from './net-diagnose.js';
 import { describeCa } from './ca-bundle.js';
 import { describeAccounts } from './account-diagnose.js';
 import { repairStoredCredentials } from './credential-repair.js';
-import { createUsageStore } from './usage-store.js';
-import { publicUsage, readCacheTokens } from './usage-cache.js';
+import { createUsageStore, markUsageFailed } from './usage-store.js';
+import { publicUsage, readCacheTokens, sanitizeUsage } from './usage-cache.js';
 import { createCheckinLog } from './checkin-log.js';
 import { createSearchService } from './search/index.js';
 import { createMcpServer } from './mcp/server.js';
+import { takeModelEffort } from './effort.js';
+import { deferStreamResponse } from './deferred-response.js';
+import { createToolWire } from './tool-wire.js';
+import { compressOutbound, injectPrompts } from './token-saver/index.js';
+import { raccoonLoginPage } from './channels/raccoon/login-page.js';
+import { RACCOON_LOGIN_TARGET } from './channels/raccoon/index.js';
 
 const MAX_BODY_BYTES = 8 * 1024 * 1024;
 const SSE_HEARTBEAT_MS = 15000;
 /** 入口猜测模型名的最长等待：目录刷新不该让对话请求排队 */
 const MODEL_RESOLVE_TIMEOUT_MS = 3000;
-const VERSION = '0.1.0';
+const VERSION = '0.2.0';
 
 const CORS = {
   'access-control-allow-origin': '*',
@@ -345,6 +351,21 @@ export function createApp({
         });
       }
 
+      // 本机登录入口（Raccoon）：必须放在 API Key 校验之前 —— WebView 直接打开它，
+      // 手上没有 Key；页面本身只是过渡 + 跳官网，不含任何机密。
+      if (req.method === 'GET' && (path === '/raccoon/login' || path === '/login/raccoon')) {
+        const html = raccoonLoginPage({ target: RACCOON_LOGIN_TARGET });
+        res.writeHead(200, {
+          'content-type': 'text/html; charset=utf-8',
+          'content-length': Buffer.byteLength(html),
+          'cache-control': 'no-store',
+          // 允许页内跳转，不允许被别的站点套壳
+          'x-content-type-options': 'nosniff'
+        });
+        res.end(html);
+        return;
+      }
+
       if (path.startsWith('/api/')) return await handleApi(req, res, path);
 
       if (!checkApiKey(req)) {
@@ -428,7 +449,14 @@ export function createApp({
       return sendJson(res, 404, { error: { message: `未知路径 ${path}`, type: 'invalid_request_error' } });
     } catch (e) {
       const err = normalizeError(e);
+      // 非流式失败：sendJson 会带上真实状态码，但 rec.code 只有 HTTP_xxx，
+      // 补上 EMPTY_REPLY / TIMEOUT 这类语义码，看板才能按原因分组。
+      if (res.ofmUsage && res.ofmUsage.ok !== false) {
+        res.ofmUsage.code = err.code || res.ofmUsage.code;
+      }
       if (res.headersSent) {
+        // 走到这里说明是内部没兜住的异常且响应头已发（200），显式钉失败。
+        markUsageFailed(res.ofmUsage, err, { truncated: true });
         try {
           res.end();
         } catch {
@@ -592,6 +620,9 @@ export function createApp({
         network: { ca: describeCa() },
         // 按模型保存的默认思考档位：客户端不传 reasoning_effort 时才生效
         modelEffort: store.settings.modelEffort || {},
+        // 省 Token 设置（App 设置页据此渲染开关）
+        tokenSaver: store.settings.tokenSaver,
+        effortBudget: store.settings.effortBudget === true,
         uptime_ms: Date.now() - startedAt
       });
     }
@@ -607,6 +638,12 @@ export function createApp({
     if (req.method === 'POST' && path === '/api/accounts') {
       const body = await readJson(req);
       const result = await logins.start(body.provider);
+      // 渠道可以返回相对登录入口（Raccoon 的 /raccoon/login 由本机服务自己出），
+      // 这里补成完整地址再交给 App —— App 只认 http(s)。
+      if (result && typeof result.loginUrl === 'string' && result.loginUrl.startsWith('/')) {
+        const host = req.headers.host || '127.0.0.1';
+        result.loginUrl = `http://${host}${result.loginUrl}`;
+      }
       return sendJson(res, 200, result);
     }
 
@@ -770,8 +807,10 @@ export function createApp({
     }
 
     if (req.method === 'GET' && path === '/api/usage/log') {
-      const limit = Number(new URL(req.url, 'http://127.0.0.1').searchParams.get('limit') || 100);
-      return sendJson(res, 200, { ok: true, value: { entries: await usageStore.recent({ limit }) } });
+      const q = new URL(req.url, 'http://127.0.0.1').searchParams;
+      const limit = Number(q.get('limit') || 100);
+      const days = Number(q.get('days') || 0);
+      return sendJson(res, 200, { ok: true, value: { entries: await usageStore.recent({ limit, days }) } });
     }
 
     if (req.method === 'DELETE' && path === '/api/usage') {
@@ -877,6 +916,17 @@ export function createApp({
             else if (typeof value === 'string') s.modelEffort[key] = value.slice(0, 32);
           }
         }
+        // 省 Token：RTK 压缩与提示词瘦身开关（键白名单在 store 的 load 里再收一次）
+        const ts = body.tokenSaver;
+        if (ts && typeof ts === 'object' && !Array.isArray(ts)) {
+          const prev = s.tokenSaver || {};
+          s.tokenSaver = {
+            rtk: typeof ts.rtk === 'boolean' ? ts.rtk : prev.rtk !== false,
+            caveman: typeof ts.caveman === 'string' ? ts.caveman.slice(0, 24) : prev.caveman || 'off',
+            ponytail: typeof ts.ponytail === 'string' ? ts.ponytail.slice(0, 24) : prev.ponytail || 'off'
+          };
+        }
+        if (typeof body.effortBudget === 'boolean') s.effortBudget = body.effortBudget;
         // Qoder machine 头：Android 拿不到官方 UMID，允许用户在设置里手工粘贴。
         // 空串 = 清除（回到不带这两个头的保守降级）。
         const qm = body.credits?.qoderMachine;
@@ -894,7 +944,9 @@ export function createApp({
       return sendJson(res, 200, {
         ok: true,
         enabled: store.settings.enabled,
-        qoderMachineConfigured: Boolean(qm?.token && qm?.type)
+        qoderMachineConfigured: Boolean(qm?.token && qm?.type),
+        tokenSaver: store.settings.tokenSaver,
+        effortBudget: store.settings.effortBudget === true
       });
     }
 
@@ -922,7 +974,7 @@ export function createApp({
       return sendJson(res, 200, { key });
     }
 
-    const m = /^\/api\/accounts\/([^/]+)(\/callback|\/refresh)?$/.exec(path);
+    const m = /^\/api\/accounts\/([^/]+)(\/callback|\/refresh|\/cookie)?$/.exec(path);
     if (m) {
       const id = decodeURIComponent(m[1]);
       const action = m[2];
@@ -930,6 +982,12 @@ export function createApp({
       if (req.method === 'POST' && action === '/callback') {
         const body = await readJson(req);
         const r = await logins.completeCallback(id, body.url);
+        return sendJson(res, 200, { ...r, account: publicAccount(r.account) });
+      }
+
+      if (req.method === 'POST' && action === '/cookie') {
+        const body = await readJson(req);
+        const r = await logins.cookie(id, body.cookie || body.token || '');
         return sendJson(res, 200, { ...r, account: publicAccount(r.account) });
       }
 
@@ -1041,31 +1099,52 @@ export function createApp({
   }
 
   async function handleChatCompletions(req, res, body) {
+    // 第三方可能把档位写在模型名尾部：`provider/model(high)`。
+    // 先剥下来（只认已知档位），再走模型名归一化，否则会被当成模型不存在。
+    takeModelEffort(body);
     // 客户端可能把模型显示名/装饰 id 直接回传，先归一化再校验
     body.model = await normalizeModelInput(body.model);
     if (!body.model) throw new OfmError(Codes.INVALID_REQUEST, '缺少 model', { status: 400 });
+    // 省 Token：先压工具输出（只改 tool 结果，fail-open），再注入提示词瘦身
+    const saver = compressOutbound(body, 'chat', store.settings);
     const internal = { ...normalizeChatBody(body), model: body.model };
+    injectPrompts(internal, store.settings);
     const ctx = makeCtx(req, res);
     const rec = res.ofmUsage || null;
     if (rec) {
       rec.model = body.model;
       rec.stream = internal.stream === true;
+      if (saver.saved > 0) {
+        rec.savedBytes = saver.saved;
+        rec.savedHits = saver.hits.length;
+      }
     }
 
     if (!internal.stream) {
       const agg = await collect(internal, ctx);
       applyUsageRecord(rec, ctx.trace, agg.usage);
+      // 非流式同样要过 decoy 过滤：模型可能去调一个调用方从没声明过的
+      // 指纹占位工具，原样返回就是「无法执行的 tool_calls」。
+      const wire = createToolWire(internal.tools);
+      agg.toolCalls = (agg.toolCalls || []).filter((tc) => wire.executable(tc.name));
+      if (agg.toolCalls.length === 0 && agg.finishReason === 'tool_calls') agg.finishReason = 'stop';
       return sendJson(res, 200, openAiCompletion({ id: chatId(), model: body.model, ...agg }));
     }
 
     const id = chatId();
     const created = Math.floor(Date.now() / 1000);
+    // 延迟提交响应头：首帧正文之前失败，仍能返回真实的 4xx/5xx，
+    // 而不是 200 + 一条错误帧（第三方 SDK 的重试逻辑全依赖真实状态码）。
+    const staged = deferStreamResponse(res, SSE_HEARTBEAT_MS);
+    res = staged.response;
     startSse(res);
     const hb = startHeartbeat(res);
     let finishReason = 'stop';
     let usage = null;
     let sentRole = false;
-    const toolIndex = new Map();
+    const toolWire = createToolWire(internal.tools);
+    // 未提交时失败：不在本层写任何东西，交给外层按真实状态码回包
+    let earlyError = null;
 
     const chunk = (delta, finish = null, extra = {}) =>
       `data: ${JSON.stringify({
@@ -1084,30 +1163,54 @@ export function createApp({
       for await (const d of chatStream({ registry, store, settings: store.settings, req: internal, signal: ctx.signal, trace: ctx.trace })) {
         if (d.type === 'credential') continue;
         hb.kick();
+        // 首个正文帧到达：这时才把响应头发出去，失败窗口到此结束
+        if (d.type === 'text' || d.type === 'reasoning' || d.type === 'tool_call') staged.commit();
         // 首片段耗时：流式体验的核心指标，比总耗时更能反映「卡不卡」
-        if (rec && !rec.firstAt && (d.type === 'text' || d.type === 'reasoning' || d.type === 'tool_call')) {
-          rec.firstAt = Date.now();
+        if (rec && d.type === 'reasoning') rec.reasonDeltas = (rec.reasonDeltas || 0) + 1;
+        if (rec && (d.type === 'text' || d.type === 'reasoning' || d.type === 'tool_call')) {
+          const t = Date.now();
+          if (!rec.firstAt) rec.firstAt = t;
+          // 每个正文帧都推进窗口末端；只有 >=2 帧才存在可测的生成时间窗，
+          // 单大帧 / 纯思考静默的模型不会凭空造出一个速度。
+          rec.lastAt = t;
         }
         if (d.type === 'text') res.write(chunk({ content: d.text }));
         else if (d.type === 'reasoning') res.write(chunk({ reasoning_content: d.text }));
         else if (d.type === 'tool_call') {
-          const idx = toolIndex.has(d.index) ? toolIndex.get(d.index) : toolIndex.size;
-          toolIndex.set(d.index, idx);
-          const call = { index: idx, type: 'function', function: { arguments: d.argumentsDelta || '' } };
-          if (d.id) call.id = d.id;
-          if (d.name) call.function.name = d.name;
-          res.write(chunk({ tool_calls: [call] }));
+          // index 连续编号、decoy 抑制、name 未到的参数先挂起 —— 见 tool-wire.js
+          const action = toolWire.admit(d);
+          if (action.kind === 'open') {
+            const call = {
+              index: action.index,
+              type: 'function',
+              function: { name: action.name, arguments: action.args || '' }
+            };
+            if (action.id) call.id = action.id;
+            res.write(chunk({ tool_calls: [call] }));
+          } else if (action.kind === 'args') {
+            // 只有参数增量的帧：按 OpenAI 增量形状发，不带空的 function.name
+            res.write(chunk({ tool_calls: [{ index: action.index, function: { arguments: action.args } }] }));
+          }
         } else if (d.type === 'usage') usage = d.usage;
         else if (d.type === 'finish') finishReason = d.reason;
       }
 
-      res.write(chunk({}, toolIndex.size > 0 && finishReason === 'stop' ? 'tool_calls' : finishReason, usage ? { usage: publicUsage(usage) } : {}));
+      res.write(chunk({}, toolWire.count > 0 && finishReason === 'stop' ? 'tool_calls' : finishReason, usage ? { usage: publicUsage(usage) } : {}));
       res.write('data: [DONE]\n\n');
       applyUsageRecord(rec, ctx.trace, usage);
     } catch (e) {
       // 失败也必须记一条：失败率与错误码是用量看板最有价值的部分
       applyUsageRecord(rec, ctx.trace, usage);
       const err = normalizeError(e);
+      if (!staged.committed) {
+        // 响应头还没发出去：这一轮可以像普通请求一样失败，外层直接回
+        // err.status（401/429/502…）。绝不能在这里写 end()，那会提交 200。
+        staged.dispose();
+        earlyError = err;
+        throw err;
+      }
+      // 流式的 200 响应头已经发出，这里必须显式钉住失败，否则成功率永远虚高。
+      markUsageFailed(rec, err, { truncated: !!rec?.firstAt });
       // 严格按 choices[0].delta 解析的客户端会忽略裸 error 帧 —— 只发它
       // 就表现为「无回复」。先补一段看得见的 assistant 正文，再给结构化错误帧。
       try { res.write(chunk({ content: `[OFM 错误] ${err.message}` }, 'stop')); } catch { /* noop */ }
@@ -1115,19 +1218,27 @@ export function createApp({
       res.write('data: [DONE]\n\n');
     } finally {
       hb.stop();
-      res.end();
+      // throw 的路径不能 end()：end 会 commit 缓冲里的 200 头
+      if (!earlyError) res.end();
     }
   }
 
   async function handleAnthropic(req, res, body) {
+    takeModelEffort(body);
     body.model = await normalizeModelInput(body.model);
     if (!body.model) throw new OfmError(Codes.INVALID_REQUEST, '缺少 model', { status: 400 });
+    const saver = compressOutbound(body, 'messages', store.settings);
     const internal = { ...anthropicToInternal(body), model: body.model };
+    injectPrompts(internal, store.settings);
     const ctx = makeCtx(req, res);
     const rec = res.ofmUsage || null;
     if (rec) {
       rec.model = body.model;
       rec.stream = internal.stream === true;
+      if (saver.saved > 0) {
+        rec.savedBytes = saver.saved;
+        rec.savedHits = saver.hits.length;
+      }
     }
     // 客户端没要 thinking 就别下发 thinking 块（Anthropic 客户端对未请求的块很敏感）
     const wantThinking = body.thinking?.type === 'enabled';
@@ -1139,6 +1250,8 @@ export function createApp({
       return sendJson(res, 200, toAnthropicMessage({ id: `msg_${crypto.randomBytes(8).toString('hex')}`, model: body.model, ...agg }));
     }
 
+    const staged = deferStreamResponse(res, SSE_HEARTBEAT_MS);
+    res = staged.response;
     startSse(res);
     const hb = startHeartbeat(res);
     const estimated = internal.messages.reduce(
@@ -1154,13 +1267,19 @@ export function createApp({
     let usage = null;
     let finishReason = 'stop';
     let sawTool = false;
+    let earlyError = null;
     try {
       res.write(writer.start());
       for await (const d of chatStream({ registry, store, settings: store.settings, req: internal, signal: ctx.signal, trace: ctx.trace })) {
         if (d.type === 'credential') continue;
         hb.kick();
-        if (rec && !rec.firstAt && (d.type === 'text' || d.type === 'reasoning' || d.type === 'tool_call')) {
-          rec.firstAt = Date.now();
+        if (rec && d.type === 'reasoning') rec.reasonDeltas = (rec.reasonDeltas || 0) + 1;
+        if (rec && (d.type === 'text' || d.type === 'reasoning' || d.type === 'tool_call')) {
+          const t = Date.now();
+          if (!rec.firstAt) rec.firstAt = t;
+          // 每个正文帧都推进窗口末端；只有 >=2 帧才存在可测的生成时间窗，
+          // 单大帧 / 纯思考静默的模型不会凭空造出一个速度。
+          rec.lastAt = t;
         }
         if (d.type === 'usage') {
           usage = d.usage;
@@ -1172,6 +1291,8 @@ export function createApp({
         }
         if (d.type === 'tool_call') sawTool = true;
         if (d.type === 'reasoning' && !wantThinking) continue;
+        // 首个真正下发的正文帧：提交响应头
+        if (d.type === 'text' || d.type === 'reasoning' || d.type === 'tool_call') staged.commit();
         res.write(writer.delta(d));
       }
       // 上游 done 帧常把 tool_calls 也报成 stop；Claude Code 靠 stop_reason
@@ -1184,22 +1305,37 @@ export function createApp({
     } catch (e) {
       applyUsageRecord(rec, ctx.trace, usage);
       const err = normalizeError(e);
+      if (!staged.committed) {
+        staged.dispose();
+        earlyError = err;
+        throw err;
+      }
+      // 流式的 200 响应头已经发出，这里必须显式钉住失败，否则成功率永远虚高。
+      // firstAt 有值 = 已经吐过正文，属于「半截流」，单独标记便于看板区分。
+      markUsageFailed(rec, err, { truncated: !!rec?.firstAt });
       try { res.write(writer.delta({ type: 'text', text: `[OFM 错误] ${err.message}` })); } catch { /* noop */ }
       res.write(writer.error(err));
     } finally {
       hb.stop();
-      res.end();
+      if (!earlyError) res.end();
     }
   }
 
   async function handleResponses(req, res, body) {
+    takeModelEffort(body);
     body.model = await normalizeModelInput(body.model);
+    const saver = compressOutbound(body, 'responses', store.settings);
     const internal = { ...responsesToInternal(body), model: body.model };
+    injectPrompts(internal, store.settings);
     const ctx = makeCtx(req, res);
     const rec = res.ofmUsage || null;
     if (rec) {
       rec.model = body.model;
       rec.stream = internal.stream === true;
+      if (saver.saved > 0) {
+        rec.savedBytes = saver.saved;
+        rec.savedHits = saver.hits.length;
+      }
     }
 
     if (!internal.stream) {
@@ -1208,19 +1344,28 @@ export function createApp({
       return sendJson(res, 200, toResponsesObject({ id: `resp_${crypto.randomBytes(8).toString('hex')}`, model: body.model, ...agg }));
     }
 
+    const staged = deferStreamResponse(res, SSE_HEARTBEAT_MS);
+    res = staged.response;
     startSse(res);
     const hb = startHeartbeat(res);
     const writer = new ResponsesStreamWriter({ id: `resp_${crypto.randomBytes(8).toString('hex')}`, model: body.model });
+    const respWire = createToolWire(internal.tools);
     let usage = null;
     let finishReason = 'stop';
     let sawTool = false;
+    let earlyError = null;
     try {
       res.write(writer.start());
       for await (const d of chatStream({ registry, store, settings: store.settings, req: internal, signal: ctx.signal, trace: ctx.trace })) {
         if (d.type === 'credential') continue;
         hb.kick();
-        if (rec && !rec.firstAt && (d.type === 'text' || d.type === 'reasoning' || d.type === 'tool_call')) {
-          rec.firstAt = Date.now();
+        if (rec && d.type === 'reasoning') rec.reasonDeltas = (rec.reasonDeltas || 0) + 1;
+        if (rec && (d.type === 'text' || d.type === 'reasoning' || d.type === 'tool_call')) {
+          const t = Date.now();
+          if (!rec.firstAt) rec.firstAt = t;
+          // 每个正文帧都推进窗口末端；只有 >=2 帧才存在可测的生成时间窗，
+          // 单大帧 / 纯思考静默的模型不会凭空造出一个速度。
+          rec.lastAt = t;
         }
         if (d.type === 'usage') {
           usage = d.usage;
@@ -1230,7 +1375,14 @@ export function createApp({
           finishReason = d.reason;
           continue;
         }
-        if (d.type === 'tool_call') sawTool = true;
+        if (d.type === 'tool_call') {
+          // Responses 每个工具调用是一条完整 item，没有 index 重排问题；
+          // 这里只挡 decoy —— 未在调用方 tools 里声明的指纹占位工具。
+          if (d.name && !respWire.executable(d.name)) continue;
+          sawTool = true;
+        }
+        // 首个真正下发的正文帧：提交响应头
+        if (d.type === 'text' || d.type === 'reasoning' || d.type === 'tool_call') staged.commit();
         res.write(writer.delta(d));
       }
       res.write(writer.finish({
@@ -1241,11 +1393,19 @@ export function createApp({
     } catch (e) {
       applyUsageRecord(rec, ctx.trace, usage);
       const err = normalizeError(e);
+      if (!staged.committed) {
+        staged.dispose();
+        earlyError = err;
+        throw err;
+      }
+      // 流式的 200 响应头已经发出，这里必须显式钉住失败，否则成功率永远虚高。
+      // firstAt 有值 = 已经吐过正文，属于「半截流」，单独标记便于看板区分。
+      markUsageFailed(rec, err, { truncated: !!rec?.firstAt });
       try { res.write(writer.delta({ type: 'text', text: `[OFM 错误] ${err.message}` })); } catch { /* noop */ }
       res.write(writer.error(err));
     } finally {
       hb.stop();
-      res.end();
+      if (!earlyError) res.end();
     }
   }
 
@@ -1263,10 +1423,24 @@ export function createApp({
     //    POST 的请求体一读完 req.complete 就恒为 true，客户端在流式响应中途
     //    断开时这个判据永远不成立 → 上游不会被取消，继续白烧额度写死连接。
     //    res 正常结束会把 writableEnded 置 true，此时 close 事件不算异常断开。
-    const onClose = () => {
-      if (!res.writableEnded) controller.abort();
+    //
+    // 三路合并（对齐上游）：非流式端点要等上游完成才发响应头，客户端在这之前
+    // 断开时，res 的 close 在 Linux 上有时来得很晚；req 的 aborted 与 socket
+    // 的 close 更早。三条信号共享同一个幂等 abort，谁先到都能立刻取消上游。
+    const abort = () => {
+      if (!controller.signal.aborted) controller.abort();
     };
-    res.on('close', onClose);
+    const onResClose = () => {
+      if (!res.writableEnded) abort();
+    };
+    const socket = req.socket;
+    res.on('close', onResClose);
+    req.once('aborted', abort);
+    if (socket) socket.once('close', abort);
+    // ⚠️ 只信 req.aborted / socket.destroyed：Node 在**请求体读完后**就会把
+    //    IncomingMessage 标记为 destroyed，用 req.destroyed 当判据会在请求
+    //    一开始就取消上游（表现为每条对话都 "aborted"）。
+    if (req.aborted === true || socket?.destroyed === true) abort();
     // 轻量 trace：dispatch 往里写 provider / 账号 / delta 数供用量记录使用。
     // 只有对话自检才会开 wantText（累积正文），普通请求不存内容。
     return { signal: controller.signal, trace: {} };
@@ -1311,10 +1485,21 @@ function applyUsageRecord(rec, trace, usage) {
   if (trace?.provider) rec.provider = trace.provider;
   if (trace?.accountId) rec.account = trace.accountId;
   if (trace?.contentDeltas != null) rec.deltas = trace.contentDeltas;
-  let model = String(trace?.modelId || rec.model || '');
-  if (model.includes('/')) model = model.slice(model.indexOf('/') + 1);
+  // 模型 id 可能有多级（`kilo-auto/free`），不能按第一个 `/` 切：
+  // trace.modelId 已经是去掉 provider 前缀后的完整 id，直接用它。
+  let model = String(trace?.modelId || '');
+  if (!model) {
+    model = String(rec.model || '');
+    const provider = String(trace?.provider || '');
+    if (provider && model.startsWith(`${provider}/`)) model = model.slice(provider.length + 1);
+  }
   if (model) rec.model = model;
-  if (!usage) return;
+  if (!usage) {
+    // 有正文流出但上游没给 usage：这一条的 0/0 是「未知」而不是「没消耗」，
+    // 看板据此显示「N 次上游未报 token」，与真正失败 / 空回复区分开。
+    if (Number(rec.deltas) > 0) rec.noUsage = true;
+    return;
+  }
   const pick = (...vals) => {
     for (const v of vals) {
       const n = Number(v);
@@ -1322,6 +1507,14 @@ function applyUsageRecord(rec, trace, usage) {
     }
     return 0;
   };
+  // 装不进上下文窗口的输入侧用量不可信：上游偶发把 totalTokens 报得远超窗口，
+  // 据此做软预算会误判「上下文超限」。输出侧保留，供速度统计使用。
+  const trusted = trace?.contextWindow ? sanitizeUsage(usage, trace.contextWindow) : usage;
+  if (!trusted) {
+    if (Number(rec.deltas) > 0) rec.noUsage = true;
+    return;
+  }
+  usage = trusted;
   rec.inTok = pick(usage.prompt_tokens, usage.input_tokens);
   rec.outTok = pick(usage.completion_tokens, usage.output_tokens);
   // 归一化层已把各家命名统一到 cached_tokens，这里再兜底读一次全部已知命名：
@@ -1330,6 +1523,14 @@ function applyUsageRecord(rec, trace, usage) {
   const { hit, reported } = readCacheTokens(usage);
   rec.cachedTok = hit;
   rec.cacheSeen = reported;
+  // 思考 token：上游算了但可能从未流式下发。速度口径要剔除这部分（usage-store.speedTokens）。
+  const reason = pick(
+    usage.completion_tokens_details?.reasoning_tokens,
+    usage.output_tokens_details?.reasoning_tokens,
+    usage.reasoning_tokens
+  );
+  if (reason > 0) rec.reasonTok = reason;
+  rec.sawReasoning = Number(rec.reasonDeltas) > 0;
 }
 
 function openAiCompletion({ id, model, text, reasoning, toolCalls, finishReason, usage }) {

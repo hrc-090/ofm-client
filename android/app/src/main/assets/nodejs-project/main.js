@@ -85,7 +85,7 @@ async function start() {
     key: store.settings.forward.key,
     uiToken,
     startedAt: Date.now(),
-    version: '0.1.0'
+    version: '0.2.0'
   };
   fs.writeFileSync(runtimePath, JSON.stringify(runtime, null, 2), { mode: 0o600 });
 

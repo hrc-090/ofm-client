@@ -89,3 +89,37 @@ export function publicUsage(u) {
 export function cachedOrNull(u) {
   return u && u.cached_tokens != null ? u.cached_tokens : null;
 }
+
+/**
+ * 丢弃装不进上下文窗口的输入侧用量（对齐上游 sanitizeUsage）。
+ *
+ * 多模态回合偶发：上游把 totalTokens 报得远超模型声明的窗口，宿主的软预算
+ * 据此判 CONTEXT_WINDOW_EXCEEDED —— 明明本地对话很短。输出侧数字仍然可信
+ * （速度统计要用），所以只丢掉输入压力，并在最后什么都没有时返回 undefined，
+ * 让调用方按「上游未上报」处理，而不是把 0 当成事实。
+ *
+ * @param {object|undefined} usage
+ * @param {number|undefined} contextWindow 模型声明的窗口
+ */
+export function sanitizeUsage(usage, contextWindow) {
+  if (!usage || typeof usage !== 'object') return usage;
+  const win = Number(contextWindow);
+  if (!Number.isFinite(win) || win <= 0) return usage;
+
+  const input = Number(usage.prompt_tokens ?? usage.input_tokens ?? 0) || 0;
+  const cached = Number(usage.cached_tokens ?? 0) || 0;
+  const total = Number(usage.total_tokens);
+  const over = input + cached > win || (Number.isFinite(total) && total > win);
+  if (!over) return usage;
+
+  const output = Number(usage.completion_tokens ?? usage.output_tokens ?? 0) || 0;
+  if (output <= 0) return undefined;
+  const out = {
+    ...usage,
+    prompt_tokens: 0,
+    input_tokens: undefined,
+    total_tokens: output
+  };
+  if (out.prompt_tokens_details) delete out.prompt_tokens_details;
+  return out;
+}

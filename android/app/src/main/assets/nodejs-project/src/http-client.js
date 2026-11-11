@@ -324,7 +324,40 @@ function createIdleWatchdog(ms, onFire) {
  * 上游有时把整段 SSE 用 application/json 吐回来（网关高负载）。
  * 嗅探首块内容：以 data:/event:/: 开头就当 SSE 处理。
  */
+/**
+ * 判定响应体形状（对齐上游 sniffBody）。
+ *
+ * Content-Type 只是提示，不作为判据：高负载时网关会把整段 SSE 塞进
+ * `application/json`，也有网关回 200 + WAF 的 HTML 页面。
+ *
+ * 与旧版只看 `startsWith('data:')` 的区别：
+ *  - `id: 1` / `retry: 3000` 开头的 SSE 以前会被判成非流式，整段解析失败；
+ *  - 现在匹配前 64 字符里任意一行是 `data|event|id|retry` 就算 SSE；
+ *  - HTML 页面单独归类，好给出「WAF / 体积限制」这种可行动的错误，
+ *    而不是笼统一句「无法解析」。
+ *
+ * @returns {'empty'|'sse'|'json'|'html'|'unknown'}
+ */
+export function sniffBody(text) {
+  const head = String(text ?? '').replace(/^\uFEFF/, '').trimStart();
+  if (head === '') return 'empty';
+  if (head.startsWith(':') || /^(?:data|event|id|retry)[ \t]*:/m.test(head.slice(0, 64))) return 'sse';
+  if (head.startsWith('{') || head.startsWith('[')) return 'json';
+  if (/^\s*<(!doctype|html[\s>])/i.test(head)) return 'html';
+  return 'unknown';
+}
+
 export function looksLikeSse(head) {
-  const s = head.replace(/^\uFEFF/, '').trimStart();
-  return s.startsWith('data:') || s.startsWith('event:') || s.startsWith(':');
+  return sniffBody(head) === 'sse';
+}
+
+/** 上游 200 但回了一整页 HTML：通常是网关前面的 WAF 或请求体超限。 */
+export function htmlPageError(status, head) {
+  const title = /<title[^>]*>([^<]{0,80})/i.exec(String(head || ''))?.[1]?.trim();
+  return new OfmError(
+    Codes.UPSTREAM,
+    `上游网关前置代理返回了 HTML 页面（HTTP ${status}${title ? `，${title}` : ''}），` +
+      '通常是 WAF 拦截或请求体超过网关限制，不是模型错误。重发同样的请求通常还是这个结果。',
+    { status: status >= 400 ? status : 502, retryable: false }
+  );
 }

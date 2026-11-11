@@ -121,6 +121,10 @@ fun AppScreen() {
     var modelsHint by remember { mutableStateOf("") }
     // 按模型保存的默认思考档位，来自 /api/status，客户端未显式传值时生效
     var modelEffort by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
+    // 省 Token 设置：服务端 /api/status 是唯一真源，App 只展示与写回
+    var tokenSaverRtk by remember { mutableStateOf(true) }
+    var tokenSaverCaveman by remember { mutableStateOf("off") }
+    var effortBudget by remember { mutableStateOf(false) }
     var showKeyDialog by remember { mutableStateOf(false) }
     // 自检报告（可复制）：网络/账号自检定位「模型 / 余额拉取失败」，
     // 对话自检定位「第三方接入 API 无回复」。两者共用一个报告对话框。
@@ -166,6 +170,13 @@ fun AppScreen() {
                 m
             }
             if (nextEffort != modelEffort) modelEffort = nextEffort
+            val ts = status.optJSONObject("tokenSaver")
+            val nextRtk = ts?.optBoolean("rtk", true) ?: true
+            if (nextRtk != tokenSaverRtk) tokenSaverRtk = nextRtk
+            val nextCaveman = ts?.optString("caveman", "off").orEmpty().ifBlank { "off" }
+            if (nextCaveman != tokenSaverCaveman) tokenSaverCaveman = nextCaveman
+            val nextBudget = status.optBoolean("effortBudget", false)
+            if (nextBudget != effortBudget) effortBudget = nextBudget
             port = ApiService.port
             apiKey = ApiService.apiKey
             val nextAccounts = ApiClient.accounts()
@@ -227,8 +238,15 @@ fun AppScreen() {
                 message = if (r2.optBoolean("success")) "$name 已连接" else r2.optString("error")
                 break
             }
+            // 会话已被 Node 侧判失败并删除（例如 Cookie 验活没通过），别再空等 5 分钟
+            val fail = r2.optJSONObject("error")?.optString("message").orEmpty()
+            if (fail.isNotBlank()) {
+                done = true
+                message = fail
+                break
+            }
         }
-        if (!done) message = "登录等待超时。若浏览器提示无法打开，复制地址栏整条链接，点「粘贴回调链接完成登录」"
+        if (!done) message = "登录等待超时，请重新点「连接」再试一次"
     }
 
     fun startLogin(p: Provider) {
@@ -239,7 +257,14 @@ fun AppScreen() {
                 val loginUrl = r.optString("loginUrl")
                 val mode = r.optString("mode")
                 message = "已发起 ${p.displayName} 登录"
-                if (mode == "callback" && !useExternalBrowser) {
+                if (mode == "cookie") {
+                    // 官网登录页 + Cookie 导入：必须是 App 内 WebView，
+                    // 系统浏览器拿不到同源 Cookie，也就没法把登录态带回来。
+                    context.startActivity(
+                        LoginWebViewActivity.intent(context, accountId, loginUrl, LoginWebViewActivity.MODE_COOKIE)
+                    )
+                    awaitLoginDone(accountId, p.displayName)
+                } else if (mode == "callback" && !useExternalBrowser) {
                     // App 内 WebView：拦 127.0.0.1:18080 回调后交给 Node
                     context.startActivity(LoginWebViewActivity.intent(context, accountId, loginUrl))
                 } else if (mode == "sms") {
@@ -516,6 +541,37 @@ fun AppScreen() {
                     netBusy = netBusy,
                     chatBusy = chatBusy,
                     toolBusy = toolBusy,
+                    tokenSaverRtk = tokenSaverRtk,
+                    tokenSaverCaveman = tokenSaverCaveman,
+                    effortBudget = effortBudget,
+                    onToggleRtk = { v ->
+                        tokenSaverRtk = v
+                        scope.launch {
+                            withContext(Dispatchers.IO) {
+                                runCatching {
+                                    ApiClient.post("/api/settings", JSONObject().put("tokenSaver", JSONObject().put("rtk", v)))
+                                }
+                            }
+                        }
+                    },
+                    onSetCaveman = { v ->
+                        tokenSaverCaveman = v
+                        scope.launch {
+                            withContext(Dispatchers.IO) {
+                                runCatching {
+                                    ApiClient.post("/api/settings", JSONObject().put("tokenSaver", JSONObject().put("caveman", v)))
+                                }
+                            }
+                        }
+                    },
+                    onToggleEffortBudget = { v ->
+                        effortBudget = v
+                        scope.launch {
+                            withContext(Dispatchers.IO) {
+                                runCatching { ApiClient.post("/api/settings", JSONObject().put("effortBudget", v)) }
+                            }
+                        }
+                    },
                     onToggleEnabled = { toggleService(it) },
                     onSetKey = { showKeyDialog = true },
                     onRotateKey = {

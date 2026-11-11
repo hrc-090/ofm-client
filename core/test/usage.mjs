@@ -158,6 +158,8 @@ await test('单日超限停写，不把存储写满', async () => {
 await test('prune 只删过期整天分片', async () => {
   const dir = newDir();
   fs.mkdirSync(dir, { recursive: true });
+  // 显式给 30 天保留期，测的是 prune 逻辑本身；
+  // 生产默认已提到 120 天（17 周热力图需要），另由 summary.days=119 验收。
   const old = new Date(NOW);
   old.setDate(old.getDate() - 40);
   const fresh = new Date(NOW);
@@ -166,7 +168,7 @@ await test('prune 只删过期整天分片', async () => {
   fs.writeFileSync(path.join(dir, `${dayKey(fresh.getTime())}.jsonl`), '{}\n');
   fs.writeFileSync(path.join(dir, 'notes.txt'), 'x');
 
-  const s = createUsageStore({ dir, log: silent, now: () => NOW });
+  const s = createUsageStore({ dir, log: silent, now: () => NOW, retentionDays: 30 });
   ok('删掉 1 个过期分片', s.prune() === 1);
   ok('保留最近分片', fs.existsSync(path.join(dir, `${dayKey(fresh.getTime())}.jsonl`)));
   ok('不碰非分片文件', fs.existsSync(path.join(dir, 'notes.txt')));

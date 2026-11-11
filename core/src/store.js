@@ -71,6 +71,10 @@ export class Store {
       // 只在客户端没有显式传 reasoning_effort 时生效。
       modelEffort: {},
       defaultMaxTokens: 32768,
+      // 省 Token：RTK 压缩工具输出默认开；提示词瘦身默认关。
+      tokenSaver: { rtk: true, caveman: 'off', ponytail: 'off' },
+      // 无档位模型的预算阶梯（Light/Balanced/Deep → max_tokens），默认关
+      effortBudget: false,
       // 网页搜索与读取（截图里的「自定义搜索 / 自定义读取」+ 内置引擎）
       webSearch: normalizeWebSearch(null),
       ...(raw || {})
@@ -85,6 +89,14 @@ export class Store {
     }
     // 搜索配置白名单归一化：脏值/多余字段一律不进内存，避免后面读出奇怪结构
     settings.webSearch = normalizeWebSearch(settings.webSearch);
+    // 省 Token 配置：只保留已知键，防止第三方写进任意结构
+    const ts = settings.tokenSaver && typeof settings.tokenSaver === 'object' ? settings.tokenSaver : {};
+    settings.tokenSaver = {
+      rtk: ts.rtk !== false,
+      caveman: typeof ts.caveman === 'string' ? ts.caveman : 'off',
+      ponytail: typeof ts.ponytail === 'string' ? ts.ponytail : 'off'
+    };
+    settings.effortBudget = settings.effortBudget === true;
     if (raw === null) this.save(settings);
     return settings;
   }

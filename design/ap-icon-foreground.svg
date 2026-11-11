@@ -1,43 +1,15 @@
-<svg width="512" height="512" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="AP 图标前景">
-  <!--
-    Android adaptive icon 前景：108dp 画布，可见安全区是中心 66dp 的圆。
-    原图图形最远点距中心 182px，按 0.84 收进安全区（约 153px，画布半宽 256 的 60%）。
-    透明底，白色图形叠在 ic_launcher_background 的渐变上。
-  -->
-  <defs>
-    <filter id="blur" x="-80%" y="-80%" width="260%" height="260%">
-      <feGaussianBlur stdDeviation="14"/>
-    </filter>
-    <filter id="shadow" x="-50%" y="-50%" width="200%" height="200%">
-      <feDropShadow dx="0" dy="10" stdDeviation="14" flood-color="#1E1B4B" flood-opacity="0.35"/>
-    </filter>
-  </defs>
-
-  <g transform="translate(256 256) scale(0.84) translate(-256 -256)">
-    <circle cx="256" cy="96" r="40" fill="#22D3EE" opacity="0.55" filter="url(#blur)"/>
-
-    <g stroke="#FFFFFF" stroke-width="20" stroke-linecap="round" opacity="0.92">
-      <path d="M256 188 V118"/>
-      <path d="M256 308 V378"/>
-      <path d="M196 248 H118"/>
-      <path d="M316 248 H394"/>
-    </g>
-
-    <circle cx="256" cy="96" r="22" fill="#22D3EE"/>
-    <circle cx="256" cy="400" r="22" fill="#FFFFFF"/>
-    <circle cx="96" cy="248" r="22" fill="#FFFFFF"/>
-    <circle cx="416" cy="248" r="22" fill="#FFFFFF"/>
-
-    <rect x="196" y="188" width="120" height="120" rx="32" fill="#FFFFFF" filter="url(#shadow)"/>
-    <g stroke="#4338CA" stroke-width="12" stroke-linecap="round" fill="none">
-      <path d="M224 248 H262"/>
-      <path d="M262 248 L290 222"/>
-      <path d="M262 248 L290 274"/>
-    </g>
-    <g fill="#4338CA">
-      <circle cx="222" cy="248" r="9"/>
-      <circle cx="292" cy="222" r="9"/>
-      <circle cx="292" cy="274" r="9"/>
-    </g>
+<svg width="512" height="512" viewBox="0 0 108 108" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="回环 Loop 图标前景">
+  <title>回环 · Loop</title>
+  <!-- 主环周长 157.08：实线 135 + 缺口 22.08；旋转 -20° 使缺口中心落在右上 45° -->
+  <g id="loop-ring">
+    <circle cx="54" cy="54" r="25" fill="none" stroke="#F6F4EF" stroke-width="6.5"
+            stroke-linecap="round" stroke-dasharray="135 22.08" transform="rotate(-20 54 54)"/>
   </g>
+  <!-- 内侧刻度弧：仪器台语言，弱化处理 -->
+  <g id="inner-tick" opacity="0.22">
+    <circle cx="54" cy="54" r="15.5" fill="none" stroke="#F6F4EF" stroke-width="1.6"
+            stroke-linecap="round" stroke-dasharray="25 72.39" transform="rotate(125 54 54)"/>
+  </g>
+  <!-- 活跃端口：朱砂点落在缺口中心，r=25 / -45° -->
+  <g id="port"><circle cx="71.68" cy="36.32" r="6.0" fill="#E8835F"/></g>
 </svg>
