@@ -4,7 +4,7 @@
  */
 import { OfmError, Codes, normalizeError } from './errors.js';
 import { pickAccounts, markUsed, markRateLimited, markNeedsLogin } from './account-pool.js';
-import { sleep } from './util.js';
+import { sleep, withTimeout } from './util.js';
 import { splitModelId } from './registry.js';
 import { resolveModelId } from './model-label.js';
 import { normalizeReasoningOptions } from './reasoning-options.js';
@@ -228,6 +228,29 @@ export function createModelService({ registry, store, log }) {
     });
   }
 
+  // 单渠道目录拉取的硬上限。TRAE 一次 30s、失败再试单通道又 30s，最长 60s；
+  // 串行时足以把整批 /api/models 拖过 App 的 20s 读超时。并行后仍需给每个
+  // 渠道一个上限，否则一个卡死的渠道会让 Promise.all 一直等它。
+  // 超时只让该渠道降级（沿用缓存 / 空），诊断里写明原因，不抛给整批。
+  const CATALOG_TIMEOUT_MS = 12000;
+  async function withCatalogTimeout(promise, provider) {
+    try {
+      return await withTimeout(promise, CATALOG_TIMEOUT_MS, `${provider} 目录拉取`);
+    } catch (e) {
+      const msg = String(e?.message || e);
+      if (/超时/.test(msg)) {
+        const cached = cache.get(provider);
+        if (cached?.models) {
+          setDiag(provider, cached.models, '远端拉取超时，沿用上次目录');
+          return cached.models;
+        }
+        diag.set(provider, { source: 'error', count: 0, warning: sanitizeWarning(msg) });
+        return [];
+      }
+      throw e;
+    }
+  }
+
   async function modelsOf(provider, { force = false } = {}) {
     const settings = store.settings;
     const channel = registry.get(provider);
@@ -316,13 +339,24 @@ export function createModelService({ registry, store, log }) {
       };
       const seen = new Set();
       const out = [];
-      for (const provider of providers) {
-        let models = [];
-        try {
-          models = await modelsOf(provider, { force });
-        } catch {
-          models = [];
-        }
+      // 目录拉取并行化：以前串行 for...of + await，任一渠道卡住（TRAE 两次尝试
+      // 各 30s = 60s）就把整批拖过 App 的 20s 读超时，界面只显示旧数据/兜底。
+      // 现在所有渠道同时拉，单渠道再配上 withCatalogTimeout 的硬上限，彼此不拖累。
+      // 拉取阶段与组装阶段分开：先并行拿到 {provider, models}，再按 providers 的
+      // 原始顺序组装，保证输出顺序稳定（去重 seen 也保持原语义）。
+      const providerList = [...providers];
+      const fetched = await Promise.all(
+        providerList.map(async (provider) => {
+          let models = [];
+          try {
+            models = await withCatalogTimeout(modelsOf(provider, { force }), provider);
+          } catch {
+            models = [];
+          }
+          return { provider, models };
+        })
+      );
+      for (const { provider, models } of fetched) {
         const disabled = settings.disabledModels?.[provider] || {};
         for (const m of models) {
           // 空 / 无 id 的脏条目直接丢：否则会生成 `provider/undefined` 这种
