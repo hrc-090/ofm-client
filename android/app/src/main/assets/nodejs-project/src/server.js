@@ -43,6 +43,7 @@ import { createCheckinLog } from './checkin-log.js';
 import { createSearchService } from './search/index.js';
 import { createMcpServer } from './mcp/server.js';
 import { takeModelEffort } from './effort.js';
+import { staticModelAlias } from './model-alias.js';
 import { deferStreamResponse } from './deferred-response.js';
 import { createToolWire } from './tool-wire.js';
 import { compressOutbound, injectPrompts } from './token-saver/index.js';
@@ -159,12 +160,36 @@ export function createApp({
     };
 
     // ① 先查本地目录快照（零网络、瞬时）。绝大多数情况这里就命中。
-    const quick = pick(modelService.peek());
+    const snapshot = modelService.peek();
+    const quick = pick(snapshot);
     if (quick !== s) return quick;
 
-    // ② 冷启动才去拉目录，但**必须带超时**：listAll 串行遍历所有渠道，
-    //    任一家上游卡住就会把这次对话拖到客户端超时（表现为「流着流着断了」）。
-    //    超时就放弃猜测、原样返回，让下游报清晰的 400，而不是让连接干等。
+    // ② 快照里认得这个名字但有多个渠道撞名 → 保持「不猜」，原样返回让下游报清晰 400。
+    //    这一步必须在静态兜底之前：真实目录的优先级永远高于静态快照。
+    if (snapshot.length && snapshot.some((m) =>
+      looseKey(m.model) === looseKey(s) ||
+      looseKey(resolveModelId(m.display_name || '')) === looseKey(s)
+    )) {
+      return s;
+    }
+
+    // ③ 快照为空 / 不认得这个名字：查零网络静态索引。
+    //    dshgo / web-search-deepseek 这类插件把 model 写死成自己的口径，
+    //    **不读我们的 /v1/models**，缓存必然是空的；listAll 又有 3s 超时，
+    //    慢渠道一多就放弃。静态索引从各渠道自带兜底目录构建，进程启动即有。
+    //    只纳入已登录/免登录渠道，没登录的渠道不猜。
+    const allowed = new Set();
+    const accounts = store.settings?.accounts || [];
+    for (const c of registry.list()) {
+      if (c.requiresAccount === false ||
+          accounts.some((a) => a.provider === c.id && a.enabled !== false)) {
+        allowed.add(c.id);
+      }
+    }
+    const alias = staticModelAlias(s, { allowedProviders: allowed });
+    if (alias) return alias;
+
+    // ④ 最后才拉目录（带超时）。冷启动时若静态索引也没命中，再试真实远端目录。
     try {
       const list = await withTimeout(modelService.listAll(), MODEL_RESOLVE_TIMEOUT_MS, '解析模型名');
       return pick(list);
