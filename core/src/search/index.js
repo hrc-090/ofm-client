@@ -14,7 +14,7 @@ import { searchAnySearch } from './engines/anysearch.js';
 import { customSearch, customRead } from './engines/custom.js';
 import { readLocal } from './read.js';
 import { assertSafeUrl, assertResolvedSafe } from './ssrf.js';
-import { wrapUntrusted } from './sanitize.js';
+import { wrapUntrusted, stripNonTextBlocks } from './sanitize.js';
 import { isSelfEndpoint, SelfLoopError, lanAddresses } from './self-ref.js';
 
 const KEY_REF = 'web-search';
@@ -37,6 +37,9 @@ export function createSearchService({
     const v = store.readCredential(KEY_REF);
     return { search: String(v?.search || ''), read: String(v?.read || '') };
   };
+  // 所有读取来源的正文出口统一过这一层：keenable/自定义接口可能回带 <style> 的 HTML，
+  // 不剔就会把整段 CSS 当正文喂给模型（实测 dshgo 抓百度页踩到）。
+  const cleanBody = (text) => stripNonTextBlocks(String(text || '')).trim();
 
   async function runCustomSearch({ query, count, config, timeoutMs }) {
     const cfg = config.search;
@@ -105,8 +108,10 @@ export function createSearchService({
       try {
         const keys = readKeys();
         const r = await customRead(custom, { url: target, maxChars: limit, apiKey: keys.read, timeoutMs: 15000 });
-        searchLog.record({ kind: 'read', ok: true, query: target, provider: 'custom', ms: Date.now() - t0, count: r.text.length });
-        return { url: target, final_url: r.final_url || target, title: r.title || '', text: r.text, truncated: r.truncated, provider: 'custom' };
+        const text = cleanBody(r.text);
+        searchLog.record({ kind: 'read', ok: true, query: target, provider: 'custom', ms: Date.now() - t0, count: text.length });
+        if (text) return { url: target, final_url: r.final_url || target, title: r.title || '', text, truncated: r.truncated, provider: 'custom' };
+        tries.push('自定义读取正文只有样式/脚本，已剔除');
       } catch (e) {
         lastError = e;
         tries.push(`自定义读取失败（${String(e.message || e).slice(0, 60)}）`);
@@ -116,8 +121,10 @@ export function createSearchService({
     const tLocal = Date.now();
     try {
       const r = await readLocal(target, { maxChars: limit, timeoutMs: 12000 });
-      searchLog.record({ kind: 'read', ok: true, query: target, provider: 'local', ms: Date.now() - tLocal, count: r.text.length });
-      return { url: target, final_url: r.final_url, title: r.title, text: r.text, truncated: r.truncated, provider: 'local' };
+      const text = cleanBody(r.text);
+      searchLog.record({ kind: 'read', ok: true, query: target, provider: 'local', ms: Date.now() - tLocal, count: text.length });
+      if (text) return { url: target, final_url: r.final_url, title: r.title, text, truncated: r.truncated, provider: 'local' };
+      tries.push('本地抓取正文只有样式/脚本，已剔除');
     } catch (e) {
       lastError = e;
       tries.push(`本地抓取失败（${String(e.message || e).slice(0, 60)}）`);
@@ -127,18 +134,19 @@ export function createSearchService({
       const tMcp = Date.now();
       try {
         const r = await fetchViaMcp(target, { timeoutMs: 25000 });
-        if (r.text && r.text.length > 200) {
-          searchLog.record({ kind: 'read', ok: true, query: target, provider: 'keenable', ms: Date.now() - tMcp, count: r.text.length });
+        const text = cleanBody(r.text);
+        if (text && text.length > 200) {
+          searchLog.record({ kind: 'read', ok: true, query: target, provider: 'keenable', ms: Date.now() - tMcp, count: text.length });
           return {
             url: target,
             final_url: r.url || target,
             title: r.title || '',
-            text: r.text.slice(0, limit),
-            truncated: r.text.length > limit,
+            text: text.slice(0, limit),
+            truncated: text.length > limit,
             provider: 'keenable'
           };
         }
-        tries.push('keenable 正文过短');
+        tries.push('keenable 正文过短或只有样式/脚本');
       } catch (e) {
         lastError = e;
         tries.push(`keenable 兜底失败（${String(e.message || e).slice(0, 60)}）`);

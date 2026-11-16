@@ -184,6 +184,25 @@ try {
     eq('object 字段仍是 web.page', body.object, 'web.page');
     ok('text 仍在', typeof body.text === 'string');
   });
+
+  await test('带 <style> 的 HTML 不会被当成正文喂给模型（百度 CSS 踩坑）', async () => {
+    const { stripNonTextBlocks } = await import('../src/search/sanitize.js');
+    const { extractReadable } = await import('../src/search/read.js');
+    const css =
+      '.bdsug li.bdsug-pcDirect-is-s{background-color:#f0f0f0}' +
+      '.bdsug .bdsug-newicon{color:#929292;opacity:.7;font-size:12px}' +
+      '#content_left .c-container .result{margin-bottom:14px}';
+    const html = `<!doctype html><html><head><title>百度搜索</title><style>${css}</style></head><body><div id="wrapper"><style>${css}</style><div id="content_left"><h3>真正的标题</h3><p>这是应该保留的正文内容。</p></div></div></body></html>`;
+
+    // 明文 HTML 走 cleanText 的路径（自定义读取非 JSON 分支）
+    ok('stripNonTextBlocks 剔除 style', !stripNonTextBlocks(html).includes('bdsug'));
+    // 标准读取路径
+    const r = extractReadable(html);
+    ok('extractReadable 不含 CSS', !r.text.includes('bdsug') && !r.text.includes('background-color'));
+    ok('extractReadable 保留真正文', r.text.includes('应该保留的正文'));
+    // 只有开标签的截断残块也要剔除
+    ok('未闭合 style 残块剔除', !stripNonTextBlocks(`<style>${css}<p>正文`).includes('bdsug'));
+  });
 } finally {
   await new Promise((r) => app.server.close(r));
   await new Promise((r) => mock.close(r));

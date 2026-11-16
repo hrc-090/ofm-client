@@ -1,6 +1,6 @@
 # OFM · 手机上的本机模型网关
 
-> **下载安装包**：[Releases · v0.3.4](https://github.com/hrc-090/ofm-client/releases/latest) ·
+> **下载安装包**：[Releases · v0.3.5](https://github.com/hrc-090/ofm-client/releases/latest) ·
 > [源码仓库](https://github.com/hrc-090/ofm-client)
 
 在 Android 手机上登录各家 AI 渠道账号，App 会在本机 `127.0.0.1:18900` 起一个 HTTP 服务，对外提供 **OpenAI / Anthropic 兼容接口**。手机上的 ChatBox、OpenAI SDK、Claude Code 之类客户端填一个地址和一个 Key，就能直接用这些账号的模型额度，不需要把凭据交给任何第三方服务器。
@@ -15,7 +15,7 @@
 
 **1. 安装**
 
-从 [Releases](https://github.com/hrc-090/ofm-client/releases/latest) 下载 `ofm-client-0.3.4-debug.apk`，允许「安装未知来源应用」后安装。附件里的 `SHA256SUMS.txt` 可校验完整性；`AP.apk` 是同一文件的历史文件名。
+从 [Releases](https://github.com/hrc-090/ofm-client/releases/latest) 下载 `ofm-client-0.3.5-debug.apk`，允许「安装未知来源应用」后安装。附件里的 `SHA256SUMS.txt` 可校验完整性；`AP.apk` 是同一文件的历史文件名。
 
 **2. 启动并登录**
 
@@ -303,7 +303,7 @@ cd android && ./gradlew assembleDebug                       # 4) 打包
 
 ### 测试
 
-31 套纯 mock 回归、共 **1911 项断言**，不依赖账号与外网，覆盖协议互转、登录回调、模型目录、SSE 分帧与流式稳定性、工具调用、签到与日志、用量与缓存命中、网页搜索与 MCP、Kilo 免费池、延迟响应头、工具线缆 decoy 过滤、思考档位与预算阶梯、Raccoon Cookie 登录、省 Token 压缩、应用内更新的版本比较 / Release 解析 / 校验和规则、渠道自动续期的过期时间统一解析 / 刷新锁 / 定时调度与失败语义、模型目录并行拉取与单渠道 12s 硬超时（慢渠道不再拖垮整批）、第三方模型名大小写 / `- _ 空格` 口径归一化与歧义保护、dshgo 类插件写死模型名且目录缓存为空时的零网络静态目录兜底、DSH web-deepseek-api 官方协议兼容（`date` 字段与 `/v1/fetch` 出口）。每次改 `core/` 后跑一遍再同步 assets。
+31 套纯 mock 回归、共 **1915 项断言**，不依赖账号与外网，覆盖协议互转、登录回调、模型目录、SSE 分帧与流式稳定性、工具调用、签到与日志、用量与缓存命中、网页搜索与 MCP、Kilo 免费池、延迟响应头、工具线缆 decoy 过滤、思考档位与预算阶梯、Raccoon Cookie 登录、省 Token 压缩、应用内更新的版本比较 / Release 解析 / 校验和规则、渠道自动续期的过期时间统一解析 / 刷新锁 / 定时调度与失败语义、模型目录并行拉取与单渠道 12s 硬超时（慢渠道不再拖垮整批）、第三方模型名大小写 / `- _ 空格` 口径归一化与歧义保护、dshgo 类插件写死模型名且目录缓存为空时的零网络静态目录兜底、DSH web-deepseek-api 官方协议兼容（`date` 字段与 `/v1/fetch` 出口）、正文出口统一剔除 `<style>/<script>` 块（抓取百度页不再把 CSS 当正文喂给模型）。每次改 `core/` 后跑一遍再同步 assets。
 
 ---
 
@@ -356,8 +356,9 @@ cd android && ./gradlew assembleDebug                       # 4) 打包
 
 ---
 
-**版本**：v0.3.4。
+**版本**：v0.3.5。
 
+- **v0.3.5**：修复 dshgo 对话里模型收到一大段百度搜索页 CSS 的问题——自定义读取明文分支与 keenable 兜底返回的正文带 `<style>`，原 `cleanText` 只去标签、保留标签内 CSS。现在统一剔除 `script/style/noscript/svg/iframe` 等块（含未闭合残块），所有读取出口（custom/local/keenable）与搜索摘要共用；保留真正文。
 - **v0.3.4**：修复 dshgo（DSH）网页搜索报「DeepSeek returned an invalid response body」——官方 `web-deepseek-api` 插件把 `baseURL` 指向本机后按 DeepSeek 协议严格校验响应：搜索结果必须有 `date`（null/字符串），OFM 原来只有 `published_at` 被判无效；且插件会调 `/v1/fetch` 期望 `{content}`，OFM 原来只有 `/v1/read`。现在 `/v1/search` 结果补 `date` 别名（保留 `published_at` 兼容旧 App），并新增 `/v1/fetch` 出口复用读取链；用插件真实校验逻辑逐行验收。
 - **v0.3.3**：修复 dshgo / web-search-deepseek 类安卓插件「目录缓存为空仍报 400」——v0.3.2 的归一化依赖运行时目录，插件不读 `/v1/models` 时缓存为空、3s 超时就放弃。现在用各渠道自带静态兜底目录建零网络索引，进程启动即有、不问网络：目录快照不认得这个名字时第一时间把 `deepseek-v4-flash` / `DEEPSEEK_V4_FLASH` 还原成 `trae/DeepSeek-V4-Flash`；目录里有多渠道撞名仍保持「不猜」给清晰 400。
 - **v0.3.2**：第三方插件把模型写成 `deepseek-v4-flash` 时不再报「模型 id 必须形如 provider/model」：入口按大小写 / `- _ 空格` 无损归一化后与目录比对，唯一命中才还原成真实 `provider/model`（如 `trae/DeepSeek-V4-Flash`），多命中仍给清晰 400 不猜渠道。

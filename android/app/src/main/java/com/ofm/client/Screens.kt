@@ -737,7 +737,7 @@ fun SettingsScreen(
     onToggleRenew: (Boolean) -> Unit = {},
     onRunRenew: () -> Unit = {},
     // 版本更新：状态由 MainActivity 持有，这里只展示与转发动作
-    currentVersion: String = "0.3.4",
+    currentVersion: String = "0.3.5",
     updateState: UpdateUiState = UpdateUiState.Idle,
     updateMirror: String = "",
     onCheckUpdate: () -> Unit = {},

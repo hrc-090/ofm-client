@@ -91,9 +91,28 @@ export function truncateChars(input, max) {
 
 const TAG = /<[^>]*>/g;
 
+// 非正文块：script/style 等标签对，整块剔除（含内容）。
+// 实测踩坑：百度搜索页 <style> 里有几千字符 CSS，cleanText 原来只用 TAG 去标签，
+// 标签去掉了但里面的 CSS 文本全留下了，结果整段 `.bdsug{...}` 被当成正文喂给模型。
+// 必须在去标签之前先把这些块连内容一起删掉。
+const NONTEXT_BLOCK =
+  /<(script|style|noscript|svg|iframe|form|nav|footer|aside|template|canvas)\b[^>]*>[\s\S]*?<\/\1\s*>/gi;
+// 只有开标签没有闭合（响应被截断）的残块：从开标签到结尾全丢，避免半截 CSS 漏出。
+const NONTEXT_TAIL =
+  /<(script|style|noscript|svg|iframe|form|nav|footer|aside|template|canvas)\b[^>]*>[\s\S]*$/gi;
+
+/** 剔除 script/style 等非正文块（含块内文本），给所有出口兜底用。 */
+export function stripNonTextBlocks(input) {
+  let s = String(input == null ? '' : input);
+  if (!/[<>]/.test(s)) return s;
+  s = s.replace(NONTEXT_BLOCK, ' ');
+  s = s.replace(NONTEXT_TAIL, ' ');
+  return s;
+}
+
 export function cleanText(input) {
   if (input == null) return '';
-  let s = String(input);
+  let s = stripNonTextBlocks(String(input));
   if (s.includes('<') && s.includes('>')) s = s.replace(TAG, ' ');
   s = decodeEntities(s);
   s = stripBrokenChars(s);
