@@ -467,6 +467,12 @@ export function createApp({
         const q = new URL(req.url, 'http://x').searchParams;
         return await handleRead(res, { url: q.get('url'), max_chars: q.get('max_chars') });
       }
+      // DSH web-deepseek-api 的 Fetch 出口：与 DeepSeek 官方 /v1/tools/fetch 对齐，
+      // 插件把 baseURL 设成 .../v1 后会自动拼 /fetch。
+      if (req.method === 'GET' && (path === '/v1/fetch' || path === '/fetch')) {
+        const q = new URL(req.url, 'http://x').searchParams;
+        return await handleFetch(res, { url: q.get('url'), max_chars: q.get('max_chars') });
+      }
 
       if (req.method === 'POST') {
         const body = await readJson(req);
@@ -488,6 +494,9 @@ export function createApp({
         }
         if (path === '/v1/read' || path === '/read') {
           return await handleRead(res, body);
+        }
+        if (path === '/v1/fetch' || path === '/fetch') {
+          return await handleFetch(res, body);
         }
         if (path === '/mcp') {
           return await handleMcp(req, res, body);
@@ -1101,6 +1110,24 @@ export function createApp({
    * 响应形状 = 主流「自定义搜索」的 results 数组 + 我们的元信息（provider/note/cached）。
    * note 必须透出去：用户得知道这次结果来自回退源，而不是首选源。
    */
+  /**
+   * DSH（DeepSeek Harness）官方 web-deepseek-api 插件把 Search/Fetch API 的
+   * baseURL 指向本机后，会按 DeepSeek 官方契约严格校验响应：
+   *   search → { results: [{ url:非空串, title:串, snippet:串, date:null|串 }] }
+   *   fetch  → { content: 串 }
+   * OFM 内部日期字段叫 published_at，这里补一个 date 别名，否则 undefined
+   * 会被判成 "DeepSeek returned an invalid response body"。原字段全部保留，
+   * 不影响 App 自己的搜索页与 MCP 出口。
+   */
+  function dshCompatibleResults(results) {
+    return (results || []).map((it) => ({
+      ...it,
+      date: it.published_at === undefined || it.published_at === null || it.published_at === ''
+        ? null
+        : it.published_at
+    }));
+  }
+
   async function handleSearch(res, body = {}) {
     try {
       const r = await search.search({
@@ -1114,8 +1141,18 @@ export function createApp({
         note: r.note || '',
         cached: r.cached === true,
         ms: r.ms || 0,
-        results: r.results
+        results: dshCompatibleResults(r.results)
       });
+    } catch (e) {
+      throw toSearchError(e);
+    }
+  }
+
+  /** DSH Fetch API 协议别名：{url} → {content}，复用 /v1/read 的读取链。 */
+  async function handleFetch(res, body = {}) {
+    try {
+      const r = await search.read({ url: body.url, maxChars: body.max_chars || body.maxChars });
+      return sendJson(res, 200, { content: r.text || '' });
     } catch (e) {
       throw toSearchError(e);
     }
