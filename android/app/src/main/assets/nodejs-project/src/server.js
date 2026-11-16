@@ -31,6 +31,7 @@ import { estimateTokens, contentToText } from './canonical.js';
 import { withTimeout } from './util.js';
 import { createCreditsService } from './credits/index.js';
 import { createAutoCheckin, createAutoCheckinStore } from './credits/auto-checkin.js';
+import { createAutoRenew, createAutoRenewStore } from './auto-renew.js';
 import { listCapabilities } from './credits/capability.js';
 import { runNetworkDiagnose } from './net-diagnose.js';
 import { describeCa } from './ca-bundle.js';
@@ -52,7 +53,7 @@ const MAX_BODY_BYTES = 8 * 1024 * 1024;
 const SSE_HEARTBEAT_MS = 15000;
 /** 入口猜测模型名的最长等待：目录刷新不该让对话请求排队 */
 const MODEL_RESOLVE_TIMEOUT_MS = 3000;
-const VERSION = '0.2.0';
+const VERSION = '0.3.0';
 
 const CORS = {
   'access-control-allow-origin': '*',
@@ -180,6 +181,17 @@ export function createApp({
     // 自动签到的每一轮都进签到日志；日志写失败不影响签到
     record: (e) => checkinLog.record(e),
     warn: (m) => log?.warn?.(`[auto-checkin] ${m}`)
+  });
+  /**
+   * 后台自动续期：常驻进程定时给「快过期」的账号静默刷新，避免放着不用后
+   * access_token + refresh_token 一起过期、回来只剩「需重新登录」。
+   * 启动早于自动签到 8s，让签到用上新凭据。日志只记结果，不含凭据值。
+   */
+  const autoRenew = createAutoRenew({
+    store,
+    registry,
+    stateStore: createAutoRenewStore(dataDir, log),
+    warn: (m) => log?.log?.(`[auto-renew] ${m}`)
   });
   /**
    * 对话链路自检：用一条最小真实对话把「选号 → 上游 HTTP → 响应形状 →
@@ -623,6 +635,8 @@ export function createApp({
         // 省 Token 设置（App 设置页据此渲染开关）
         tokenSaver: store.settings.tokenSaver,
         effortBudget: store.settings.effortBudget === true,
+        // 自动续期状态：并入 status，App 每轮 refresh 顺带取，不用多发一次请求
+        autoRenew: autoRenew.state(),
         uptime_ms: Date.now() - startedAt
       });
     }
@@ -727,6 +741,23 @@ export function createApp({
       else if (body.dismiss === true) s = await autoCheckin.dismiss();
       else s = autoCheckin.state(); // 三个字段都省略 = 只读
       return sendJson(res, 200, { ok: true, value: { autoCheckin: s } });
+    }
+
+    // ── 自动续期（状态 / 开关 / 手动跑一轮）──
+    // GET 只读；POST 省略所有字段也是只读，方便 Android 端复用同一条路径。
+    if (path === '/api/renew/auto' && (req.method === 'GET' || req.method === 'POST')) {
+      const body = req.method === 'POST' ? await readJson(req) : {};
+      let run = null;
+      if (typeof body.enabled === 'boolean') await autoRenew.setEnabled(body.enabled);
+      if (body.run === true) run = await autoRenew.runIfDue('manual');
+      return sendJson(res, 200, {
+        ok: true,
+        value: { autoRenew: autoRenew.state(), ...(run ? { lastRun: run } : {}) }
+      });
+    }
+    if (req.method === 'POST' && path === '/api/renew/run') {
+      const run = await autoRenew.runIfDue('manual');
+      return sendJson(res, 200, { ok: true, value: { autoRenew: autoRenew.state(), lastRun: run } });
     }
 
     // ── 签到日志（排查用）──
@@ -1463,6 +1494,7 @@ export function createApp({
     logins,
     credits,
     autoCheckin,
+    autoRenew,
     checkinLog,
     search,
     mcp,

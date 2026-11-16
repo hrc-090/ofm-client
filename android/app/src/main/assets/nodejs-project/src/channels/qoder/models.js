@@ -22,7 +22,7 @@ export const QODER_MODELS = [
   { id: 'mmodel', name: 'MiniMax-M3', contextWindow: 1000000, multimodal: true, reasoning: false }
 ];
 
-/** 中国版：无 ultimate/performance/efficient/smodel/cmodel，多 q37fmodel / gm51model */
+/** qodercn：无 ultimate/performance/efficient/smodel/cmodel，多 q37fmodel / gm51model */
 export const QODER_CN_MODELS = [
   { id: 'auto', name: 'Auto', contextWindow: 200000, multimodal: true, reasoning: true },
   { id: 'qmodel_38max', name: 'Qwen3.8-Max', contextWindow: 1000000, multimodal: true, reasoning: true, efforts: ['xhigh', 'low', 'medium'], defaultEffort: 'medium' },

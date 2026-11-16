@@ -1,5 +1,5 @@
 /**
- * Qoder / Qoder 中国版 产品常量。
+ * Qoder / qodercn 产品常量。
  * ⚠️ 国际版与国内版是两套 host，加密推理与公开推理又是两套 host —— 不要混。
  */
 export const QODER = {
@@ -20,7 +20,7 @@ export const QODER = {
 export const QODER_CN = {
   ...QODER,
   id: 'qodercn',
-  displayName: 'Qoder 中国版',
+  displayName: 'qodercn',
   authBase: 'https://qoder.cn',
   openApiBase: 'https://openapi.qoder.com.cn',
   inferBase: 'https://api2-v2.qoder.com.cn',

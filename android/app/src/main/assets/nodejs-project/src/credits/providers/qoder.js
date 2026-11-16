@@ -1,5 +1,5 @@
 /**
- * Qoder / Qoder 中国版 每日活动领取与余额 —— 对齐上游 qoder-credits.ts。
+ * Qoder / qodercn 每日活动领取与余额 —— 对齐上游 qoder-credits.ts。
  *
  * 端点：
  *   GET  {openApiBase}/sash/api/v1/me/campaigns

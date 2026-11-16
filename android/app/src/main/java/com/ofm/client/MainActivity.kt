@@ -67,6 +67,29 @@ private fun parseEffortOptions(arr: JSONArray?): List<EffortOption> {
 private fun String.safeField(max: Int): String =
     if (length <= max) this else "${take(max - 1)}…"
 
+/** 更新链路的错误文案：把 Socket/HTTP/解析异常翻成用户能照着做的提示。 */
+private fun readableUpdateError(e: Throwable): String {
+    val raw = e.message.orEmpty()
+    return when {
+        raw.contains("HTTP 403") -> "GitHub 接口限流（403），稍后再试或填加速前缀"
+        raw.contains("HTTP 404") -> "没有找到 Release（404）"
+        raw.contains("HTTP 5") -> "GitHub 服务端错误，稍后重试"
+        raw.contains("SHA256", ignoreCase = true) -> raw
+        raw.contains("校验", ignoreCase = true) -> raw
+        raw.contains("大小不符", ignoreCase = true) -> raw
+        raw.contains("SHA256SUMS", ignoreCase = true) -> raw
+        raw.contains("APK", ignoreCase = true) -> raw
+        raw.contains("timed out", ignoreCase = true) || raw.contains("timeout", ignoreCase = true) ->
+            "连接超时"
+        raw.contains("Unable to resolve host", ignoreCase = true) || raw.contains("failed to connect", ignoreCase = true) ->
+            "无法连接 GitHub（DNS / 网络不通）"
+        raw.contains("SSL", ignoreCase = true) || raw.contains("TLS", ignoreCase = true) ||
+            raw.contains("handshake", ignoreCase = true) -> "TLS 连接被中断"
+        raw.isBlank() -> e.javaClass.simpleName ?: "未知错误"
+        else -> raw.take(160)
+    }
+}
+
 class MainActivity : ComponentActivity() {
 
     private val notifPermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) { }
@@ -125,6 +148,9 @@ fun AppScreen() {
     var tokenSaverRtk by remember { mutableStateOf(true) }
     var tokenSaverCaveman by remember { mutableStateOf("off") }
     var effortBudget by remember { mutableStateOf(false) }
+    // ── 自动续期：服务端 /api/renew/auto 是唯一真源 ──
+    var renewState by remember { mutableStateOf(RenewUiState()) }
+    var renewBusy by remember { mutableStateOf(false) }
     var showKeyDialog by remember { mutableStateOf(false) }
     // 自检报告（可复制）：网络/账号自检定位「模型 / 余额拉取失败」，
     // 对话自检定位「第三方接入 API 无回复」。两者共用一个报告对话框。
@@ -145,6 +171,92 @@ fun AppScreen() {
     // 用户以为是 App 坏了。
     var showKeepAliveTip by remember {
         mutableStateOf(!prefs.getBoolean("keepAliveAsked", false) && !KeepAlive.isIgnoringBattery(context))
+    }
+    // ── 版本更新 ──
+    val currentVersion = remember { UpdateManager.currentVersion(context) }
+    var updateState by remember { mutableStateOf<UpdateUiState>(UpdateUiState.Idle) }
+    var updateMirror by remember { mutableStateOf(UpdateManager.mirror(context)) }
+
+    /** 检查更新。silent=true 用于启动自动检查：失败不打扰，静默回到 Idle。 */
+    suspend fun checkUpdate(silent: Boolean) {
+        if (!silent) updateState = UpdateUiState.Checking
+        val r = withContext(Dispatchers.IO) {
+            runCatching { UpdateManager.check(context, updateMirror) }
+        }
+        UpdateManager.markChecked(context)
+        r.fold(
+            onSuccess = { c ->
+                updateState = if (c.newer && c.info != null) {
+                    UpdateUiState.Available(c.info)
+                } else {
+                    UpdateUiState.UpToDate(c.current, c.remote)
+                }
+            },
+            onFailure = { e ->
+                if (silent) {
+                    // 自动检查连不上 GitHub 是常态（国内直连被掐），不弹错误
+                    updateState = UpdateUiState.Idle
+                } else {
+                    updateState = UpdateUiState.Failed(
+                        "检查失败：${readableUpdateError(e)}。可在下方填加速前缀后重试。"
+                    )
+                }
+            }
+        )
+    }
+
+    /** 校验通过后拉起系统安装器；没授权就停在 Ready 让用户去开权限。 */
+    fun launchInstaller(info: UpdateInfo, file: java.io.File) {
+        if (UpdateManager.canInstall(context)) {
+            val ok = runCatching {
+                UpdateManager.install(context, file)
+                true
+            }.getOrDefault(false)
+            updateState = if (ok) {
+                UpdateUiState.Ready(info, file.absolutePath, false)
+            } else {
+                UpdateUiState.Failed("拉起安装界面失败，可用「打开 Release 页」手动下载")
+            }
+        } else {
+            updateState = UpdateUiState.Ready(info, file.absolutePath, true)
+        }
+    }
+
+    fun retryInstall() {
+        val ready = updateState as? UpdateUiState.Ready ?: return
+        launchInstaller(ready.info, java.io.File(ready.file))
+    }
+
+    /** 下载 + 校验 + 拉起安装。进度回调在 IO 线程，Compose state 支持跨线程写。 */
+    fun startUpdate() {
+        val info = (updateState as? UpdateUiState.Available)?.info ?: return
+        scope.launch {
+            updateState = UpdateUiState.Downloading(-1f, 0L, info.apkSize)
+            val r = withContext(Dispatchers.IO) {
+                runCatching {
+                    val file = UpdateManager.downloadApk(context, info, updateMirror) { p, d, t ->
+                        updateState = UpdateUiState.Downloading(p, d, t)
+                    }
+                    updateState = UpdateUiState.Verifying
+                    UpdateManager.verifyOrThrow(file, info, updateMirror)
+                    file
+                }
+            }
+            r.fold(
+                onSuccess = { file -> launchInstaller(info, file) },
+                onFailure = { e ->
+                    updateState = UpdateUiState.Failed(readableUpdateError(e))
+                }
+            )
+        }
+    }
+
+    // 启动自动检查：24 小时内只查一次，且与 3s 轮询循环分开，避免重复请求
+    LaunchedEffect(Unit) {
+        if (UpdateManager.shouldAutoCheck(context)) {
+            updateState = UpdateUiState.Checking
+            checkUpdate(silent = true)
+        }
     }
 
     /**
@@ -177,6 +289,11 @@ fun AppScreen() {
             if (nextCaveman != tokenSaverCaveman) tokenSaverCaveman = nextCaveman
             val nextBudget = status.optBoolean("effortBudget", false)
             if (nextBudget != effortBudget) effortBudget = nextBudget
+            val ar = status.optJSONObject("autoRenew")
+            if (ar != null) {
+                val nextRenew = parseRenewState(ar)
+                if (nextRenew != renewState) renewState = nextRenew
+            }
             port = ApiService.port
             apiKey = ApiService.apiKey
             val nextAccounts = ApiClient.accounts()
@@ -214,6 +331,30 @@ fun AppScreen() {
             }
             modelsHint = modelResp.optString("hint").safeField(400)
         }.onFailure { message = it.message ?: "连接本地服务失败" }
+    }
+
+    /** 自动续期开关：先本地即时反馈，再写回服务端并刷新状态。 */
+    fun toggleRenew(v: Boolean) {
+        renewState = renewState.copy(enabled = v)
+        scope.launch {
+            withContext(Dispatchers.IO) {
+                runCatching { ApiClient.post("/api/renew/auto", JSONObject().put("enabled", v)) }
+            }
+            refresh()
+        }
+    }
+
+    /** 手动跑一轮：串行打多个上游，按钮置 busy 防重复点。 */
+    fun runRenew() {
+        if (renewBusy) return
+        renewBusy = true
+        scope.launch {
+            withContext(Dispatchers.IO) {
+                runCatching { ApiClient.post("/api/renew/run") }
+            }
+            renewBusy = false
+            refresh()
+        }
     }
 
     LaunchedEffect(Unit) {
@@ -572,6 +713,10 @@ fun AppScreen() {
                             }
                         }
                     },
+                    renewState = renewState,
+                    renewBusy = renewBusy,
+                    onToggleRenew = { v -> toggleRenew(v) },
+                    onRunRenew = { runRenew() },
                     onToggleEnabled = { toggleService(it) },
                     onSetKey = { showKeyDialog = true },
                     onRotateKey = {
@@ -620,6 +765,23 @@ fun AppScreen() {
                         // Node/V8 在同一进程只能初始化一次，重启必须换干净进程
                         ApiService.clearLastError(context)
                         android.os.Process.killProcess(android.os.Process.myPid())
+                    },
+                    currentVersion = currentVersion,
+                    updateState = updateState,
+                    updateMirror = updateMirror,
+                    onCheckUpdate = { scope.launch { checkUpdate(silent = false) } },
+                    onDownloadInstall = { startUpdate() },
+                    onRetryInstall = { retryInstall() },
+                    onOpenInstallSettings = { UpdateManager.openInstallSettings(context) },
+                    onMirrorChange = { v ->
+                        updateMirror = v
+                        UpdateManager.saveMirror(context, v)
+                    },
+                    onOpenRelease = {
+                        val info = (updateState as? UpdateUiState.Available)?.info
+                        val url = info?.htmlUrl?.takeIf { it.startsWith("http") }
+                            ?: UpdateManager.releasePage()
+                        runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))) }
                     }
                 )
             }
@@ -796,6 +958,28 @@ fun ApiKeyDialog(current: String, onDone: suspend () -> Unit, onDismiss: () -> U
             }) { Text(if (busy) "保存中…" else "保存") }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } }
+    )
+}
+
+/** 解析 /api/status 里的 autoRenew 快照；字段缺失一律回落默认，绝不因脏数据崩。 */
+private fun parseRenewState(o: JSONObject): RenewUiState {
+    val arr = o.optJSONArray("channels")
+    val rows = if (arr == null) emptyList() else (0 until arr.length()).mapNotNull { i ->
+        val r = arr.optJSONObject(i) ?: return@mapNotNull null
+        RenewChannelRow(
+            provider = r.optString("provider").take(40),
+            text = r.optString("text").take(160),
+            outcome = r.optString("outcome")
+        )
+    }
+    return RenewUiState(
+        enabled = o.optBoolean("enabled", true),
+        running = o.optBoolean("running", false),
+        lastAt = o.optLong("lastAt", 0L),
+        lastResult = o.optString("lastResult").take(300),
+        tickMs = o.optLong("tickMs", 0L),
+        aheadMs = o.optLong("aheadMs", 0L),
+        channels = rows
     )
 }
 

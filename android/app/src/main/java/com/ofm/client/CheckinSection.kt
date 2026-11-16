@@ -646,7 +646,7 @@ private fun formatPackageAmount(v: Double, unit: String): String {
 private fun providerLabel(p: String): String = when (p) {
     "trae" -> "TRAE"
     "qoder" -> "Qoder"
-    "qodercn" -> "Qoder 中国版"
+    "qodercn" -> "qodercn"
     "lobsterai" -> "LobsterAI"
     "loomy" -> "Loomy"
     "minimax" -> "MiniMax Code"

@@ -730,7 +730,22 @@ fun SettingsScreen(
     effortBudget: Boolean = false,
     onToggleRtk: (Boolean) -> Unit = {},
     onSetCaveman: (String) -> Unit = {},
-    onToggleEffortBudget: (Boolean) -> Unit = {}
+    onToggleEffortBudget: (Boolean) -> Unit = {},
+    // 自动续期：状态由 MainActivity 持有，这里只展示与转发动作
+    renewState: RenewUiState = RenewUiState(),
+    renewBusy: Boolean = false,
+    onToggleRenew: (Boolean) -> Unit = {},
+    onRunRenew: () -> Unit = {},
+    // 版本更新：状态由 MainActivity 持有，这里只展示与转发动作
+    currentVersion: String = "0.3.0",
+    updateState: UpdateUiState = UpdateUiState.Idle,
+    updateMirror: String = "",
+    onCheckUpdate: () -> Unit = {},
+    onDownloadInstall: () -> Unit = {},
+    onRetryInstall: () -> Unit = {},
+    onOpenInstallSettings: () -> Unit = {},
+    onMirrorChange: (String) -> Unit = {},
+    onOpenRelease: () -> Unit = {}
 ) {
     val context = LocalContext.current
     LazyColumn(
@@ -887,6 +902,15 @@ fun SettingsScreen(
         }
 
         item {
+            RenewCard(
+                state = renewState,
+                busy = renewBusy,
+                onToggle = onToggleRenew,
+                onRun = onRunRenew
+            )
+        }
+
+        item {
             OfmCard {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) {
@@ -917,10 +941,24 @@ fun SettingsScreen(
         }
 
         item {
+            UpdateCard(
+                currentVersion = currentVersion,
+                state = updateState,
+                mirror = updateMirror,
+                onCheck = onCheckUpdate,
+                onDownloadInstall = onDownloadInstall,
+                onRetryInstall = onRetryInstall,
+                onOpenInstallSettings = onOpenInstallSettings,
+                onMirrorChange = onMirrorChange,
+                onOpenRelease = onOpenRelease
+            )
+        }
+
+        item {
             OfmCard {
                 Text("关于", style = MaterialTheme.typography.titleSmall)
                 Text(
-                    "OFM 渠道 0.2.0 · 内嵌 Node 转发，所有流量只在本机与上游之间",
+                    "OFM 渠道 $currentVersion · 内嵌 Node 转发，所有流量只在本机与上游之间",
                     fontSize = 11.sp,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )

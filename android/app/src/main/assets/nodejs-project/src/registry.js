@@ -48,6 +48,8 @@ export function createRegistry() {
         displayName: c.displayName,
         loginMode: c.loginMode,
         requiresAccount: c.requiresAccount !== false,
+        // 是否可后台静默续期：无刷新端点 / 免登录渠道为 false
+        renewable: c.renewable !== false && c.requiresAccount !== false,
         supported: c.supported !== false,
         note: c.note
       }));

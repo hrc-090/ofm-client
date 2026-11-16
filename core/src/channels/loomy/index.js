@@ -114,6 +114,8 @@ export class LoomyChannel {
     this.requiresAccount = true;
     this.supported = true;
     this.note = '短信验证码登录（14 天内免重登）';
+    // 无刷新端点：短信会话到期只能重新发码，不进后台自动续期扫描
+    this.renewable = false;
     // 测试注入点：替换真实 HTTP，保持纯 mock 可测
     this.requestImpl = null;
   }

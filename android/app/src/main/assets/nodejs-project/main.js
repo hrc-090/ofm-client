@@ -18,7 +18,7 @@ const dataDir =
     : path.join(os.homedir(), '.our-free-model'));
 fs.mkdirSync(dataDir, { recursive: true });
 
-const { server, store, search, uiToken, logins, autoCheckin, modelService } = createApp({ dataDir, log: console });
+const { server, store, search, uiToken, logins, autoCheckin, autoRenew, modelService } = createApp({ dataDir, log: console });
 
 // 固定端口。绝不读 store.settings.forward.port —— 早期版本把「降级时系统分配的
 // 随机端口」写回了 settings，导致下次启动继续用那个端口，客户端配置就永远连不上。
@@ -85,15 +85,18 @@ async function start() {
     key: store.settings.forward.key,
     uiToken,
     startedAt: Date.now(),
-    version: '0.2.0'
+    version: '0.3.0'
   };
   fs.writeFileSync(runtimePath, JSON.stringify(runtime, null, 2), { mode: 0o600 });
 
   console.log(`[ofm] listening on http://${host}:${port}`);
   console.log(`[ofm] api key: ${store.settings.forward.key.slice(0, 12)}…（完整值见 runtime.json / App 界面）`);
 
+  // 自动续期：启动延迟 8s（0 合法）+ 周期巡检 30min。早于签到 30s，
+  // 让「快过期」的账号先续上，签到再用新凭据。放在 listen 成功之后，
+  // 确保此时凭据目录与 runtime 都已就绪。
+  autoRenew.start();
   // 自动签到：启动延迟 30s（0 合法）+ 跨天巡检 2.5h。
-  // 放在 listen 成功之后，确保此时凭据目录与 runtime 都已就绪。
   autoCheckin.start();
 
   // 启动后异步预热模型目录：有账号时第三方第一次调 /v1/models 就能直接命中缓存，
@@ -113,6 +116,7 @@ async function start() {
   const shutdown = () => {
     console.log('[ofm] shutting down');
     try { autoCheckin.stop(); } catch { /* 忽略 */ }
+    try { autoRenew.stop(); } catch { /* 忽略 */ }
     try { callbackServer.close(); } catch { /* 忽略 */ }
     server.close(() => process.exit(0));
     setTimeout(() => process.exit(0), 1500).unref();

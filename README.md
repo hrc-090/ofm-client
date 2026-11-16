@@ -15,7 +15,7 @@
 
 **1. 安装**
 
-从 [Releases](https://github.com/hrc-090/ofm-client/releases/latest) 下载 `ofm-client-0.2.0-debug.apk`，允许「安装未知来源应用」后安装。附件里的 `SHA256SUMS.txt` 可校验完整性；`AP.apk` 是同一文件的历史文件名。
+从 [Releases](https://github.com/hrc-090/ofm-client/releases/latest) 下载 `ofm-client-0.3.0-debug.apk`，允许「安装未知来源应用」后安装。附件里的 `SHA256SUMS.txt` 可校验完整性；`AP.apk` 是同一文件的历史文件名。
 
 **2. 启动并登录**
 
@@ -50,16 +50,27 @@ curl -N -H "Authorization: Bearer ofm-local-key" -H 'Content-Type: application/j
 | 能力 | 说明 |
 | --- | --- |
 | 兼容接口 | `/v1/chat/completions`、`/v1/responses`、`/v1/messages`、`/v1/models`，流式与非流式、工具调用、思考档位透传 |
-| 多渠道 | TRAE、Qoder / Qoder CN、Cline、LobsterAI、Loomy、Raccoon、MiniMax、ZCode，外加 **Kilo 免费池**（免账号）与 `mock` 本地回显；多账号选号、自动续期、失败换号 |
+| 多渠道 | TRAE、Qoder / qodercn、Cline、LobsterAI、Loomy、Raccoon、MiniMax、ZCode，外加 **Kilo 免费池**（免账号）与 `mock` 本地回显；多账号选号、请求前按需续期、失败换号 |
 | 省 Token | RTK 压缩工具输出（git diff / 构建日志 / grep / ls / tree，默认开）；回答风格可选精简 / 极简 / 文言（默认关）；看板统计累计节省 |
 | 签到积分 | 逐账号签到 / 领取、余额（剩余·共·已用）、自动签到与跨天巡检、按天分片的签到日志 |
 | 用量看板 | 今日 / 7 天 / 30 天请求数、成功率、token、缓存命中、生成速度、按模型与渠道分布；只存统计不存正文 |
 | 网页搜索 | `/v1/search`、`/v1/read`、`/mcp`，多源回退链，供第三方客户端直接调用 |
 | 诊断 | 网络自检（DNS→TCP→TLS→HTTPS + 账号凭据体检）、对话自检、崩溃堆栈落盘与一键复制 |
 | 后台保活 | 前台服务 + 电池白名单引导 + 厂商自启动入口 + 划掉任务不停服务 |
+| 自动续期 | 后台常驻定时给「快过期」账号静默刷新（对照上游判定重写），秒/毫秒/ISO/JWT `exp` 过期时间统一解析，单账号刷新锁、失败退避、传输失败不误标需重登 |
+| 应用内更新 | 启动每 24 小时自动检查 GitHub Release（也可手动），应用内下载 + SHA256 校验 + 拉起系统安装；官方直连 + 自定义加速前缀 |
 | 界面 | 「仪器台」设计，底栏五项：概览 / 渠道 / 模型 / 用量 / 搜索 |
 
-「模型」页用分段切换「模型目录 / 签到积分」，可按渠道筛选、设默认思考档位；设置页在右上角齿轮，可改固定 Key、看后台保活状态、复制崩溃堆栈。
+「模型」页用分段切换「模型目录 / 签到积分」，可按渠道筛选、设默认思考档位；设置页在右上角齿轮，可改固定 Key、看后台保活状态、复制崩溃堆栈、检查版本更新。
+
+### 应用内更新
+
+设置页「版本更新」卡：启动后每 24 小时自动查一次（失败静默、不打扰），也可随时手动点「检查更新」。发现新版本会显示版本号、发布日期、包大小与 Release 说明，点「下载并安装」把 APK 下到 App 私有 `cache/updates/`，**用 Release 里的 `SHA256SUMS.txt` 校验**通过后才交给系统安装器。
+
+- **更新源**：默认直连 `api.github.com` / `github.com`。国内直连超时可在卡片里填加速前缀（如 `https://ghproxy.net/`），填了会先走镜像、失败自动回退官方；留空即只走官方。校验和从官方 Release 取得，镜像无法伪造或替换安装包。
+- **不会静默安装**：`targetSdk 34` 只能拉起系统安装界面，首次需要用户开一次「允许安装未知来源应用」，卡片会给出入口。安装包与本版本同为 debug 签名，可直接覆盖安装；若系统提示签名冲突，先卸载再装。
+- **绝不装未校验的包**：拿不到校验文件、大小对不上或 SHA256 不符就删包报错，不会把来路不明的 APK 交给安装器。
+- 版本号从 `PackageManager` 读取（不再写死在界面里），比较按数字段，`0.10.0 > 0.9.0`、本地开发版不会提示降级。
 
 ---
 
@@ -95,6 +106,8 @@ curl -N -H "Authorization: Bearer ofm-local-key" -H 'Content-Type: application/j
 | `POST /api/settings/key`、`/api/settings` | 固定 Key、模型默认思考档位 |
 | `POST /api/login/browser-target`、`/api/login/complete`、`GET /api/login/poll` | 浏览器登录登记、粘贴兜底、轮询会话 |
 | `POST /api/checkin/{capabilities,status,claim,balances,auto}` | 签到能力、状态、领取、余额、自动开关 |
+| `GET/POST /api/renew/auto`、`POST /api/renew/run` | 自动续期状态、开关、手动跑一轮（状态也并入 `/api/status`） |
+| `POST /api/accounts/:id/refresh` | 单账号立即续期 |
 | `GET /api/checkin/log`、`DELETE /api/checkin/log` | 签到日志（支持 `format=text` 排查报告） |
 | `GET /api/usage/summary?days=1\|7\|30`、`/api/usage/log`、`DELETE /api/usage` | 用量聚合、明细、清空 |
 | `GET /api/network/diagnose`、`POST /api/chat/diagnose` | 网络与账号体检、对话链路自检 |
@@ -109,6 +122,22 @@ curl -N -H "Authorization: Bearer ofm-local-key" -H 'Content-Type: application/j
 - 没有账号时 `/v1/models` 返回空列表是**正常的**，响应带 `hint` 说明原因；登录成功后会主动失效缓存并预热，不用手动刷新。
 - 远端目录拉取失败时降级为静态兜底表（带 `fallback:true`）并附 `diagnostics`，界面会明确提示「当前是兜底目录」。兜底只保证列表不空，能否对话仍取决于凭据与网络。
 - 缓存命中显示「—」表示**上游没上报**缓存用量，不是 0；命中率分母只算上报过的请求。
+
+### 渠道自动续期（对照上游）
+
+本地原本只有「请求前按需续期」：发请求时距过期 < 60s 才刷，401 时强制刷一次。问题是**App 放着不用就没人触发**，等下次打开时 `access_token` 和 `refresh_token` 可能一起过期，只能重新登录。上游的常驻插件用 `refreshLocked` 在后台保活；这里补上同一层，并顺带修掉过期时间的解析缺陷。
+
+| 对照点 | 上游 channel pack | 本地修复 |
+| --- | --- | --- |
+| 过期时间解析 | 数字秒 / 毫秒、ISO、JWT `exp` 兜底 | 原本只认「数字毫秒」，秒级与 JWT 凭据被判成永不需续；新增 `credential-expiry.js` 统一解析，对齐 `traeCredentialExpiresAtMs` |
+| 触发时机 | 请求前静默刷 + 401/403 重试 + 后台 `refreshLocked` | 保留前两者，新增后台定时主动续期 `auto-renew.js` |
+| 可续期判定 | `isTraeRefreshable`（有 refresh_token） | `isRefreshable` + 渠道 `renewable` 标记，跳过免登录 / 无刷新端点渠道 |
+| 并发控制 | Go 端 `refreshLocked` 带锁 | `withRefreshLock` 按账号 id 去重，并发请求与定时巡检不会重复打上游 |
+| 回写 / 失败语义 | 保留身份字段、token 轮换、传输失败不判终态 | 沿用（原本已对齐） |
+
+**调度纪律**照 `auto-checkin.js`：启动延迟 8s（0 合法）、30 分钟巡检、提前窗口 45 分钟（≥ 巡检间隔，保证过期前至少扫到一次）、单账号失败退避 5 分钟、独立状态文件 `auto-renew.json` 原子写、`unref` 定时器、在飞去重。只扫「快过期」账号，跳过停用 / `needsLogin` / 无过期时间 / 未进窗口的账号；**传输失败沿用旧凭据不误标需重登，只有明确 AUTH 才标**。日志与状态只含账号尾号、结果、有效期，不含任何凭据值。设备绑定渠道（Trae / Qoder）换机后仍可能要求重登，不做绕过。
+
+设置页「自动续期」卡可开关、看上次巡检与逐渠道结果、手动「立即续期」。环境变量 `OFM_AUTO_RENEW_DELAY_MS` / `OFM_AUTO_RENEW_TICK_MS` / `OFM_AUTO_RENEW_AHEAD_MS` 可调（0 合法）。
 
 ### 思考档位
 
@@ -182,7 +211,7 @@ API Key    ofm-local-key
 | 渠道 | 登录 | 推理协议 | 签到 | 关键实现点 |
 | --- | --- | --- | --- | --- |
 | TRAE | 本地回调（18 参数） | 自定义 SSE | ✅ | `auth_callback_url` 参数名不可改；`tools.parameters` 需序列化；末帧补处理 |
-| Qoder / Qoder CN | 设备码 + PKCE | WASM 加密 | ✅ | `business` 必填；两套返回值布局；设备头在 Android 上可选手工配置 |
+| Qoder / qodercn | 设备码 + PKCE | WASM 加密 | ✅ | `business` 必填；两套返回值布局；设备头在 Android 上可选手工配置 |
 | Cline | WorkOS 设备码 | OpenAI | ❌ | `access_token` 保留 `workos:` 前缀；`slow_down` 真退避 |
 | LobsterAI | 本地回调 + authCode | OpenAI | ✅ | 目录必须带 `X-LobsterAI-Client-Capabilities` |
 | Loomy | 短信验证码 | OpenAI | ✅ | HMAC-SHA1 九段签名且必须真发 `Content-MD5` 头；聊天要带 `traceparent` |
@@ -223,7 +252,7 @@ core/                        Node 运行时（桌面可直接跑，Android 复�
     reasoning-options.js     思考档位归一化
     net-diagnose.js          DNS / TCP / TLS / HTTPS 分层自检
     credential-repair.js     存量凭据缺字段自愈
-  test/*.mjs                25 套纯 mock 回归
+  test/*.mjs                27 套纯 mock 回归
   cacert.pem                Mozilla CA bundle（随 assets 进 APK）
 android/                    Kotlin + Compose + 自建 JNI 桥
   app/src/main/cpp/          JNI：String[] → char**，chdir + setenv，调 node::Start
@@ -245,7 +274,7 @@ design/                     图标源文件与可交互 UI 预览（M35-ui-previ
 cd core
 node main.js                 # 监听 127.0.0.1:18900
 # 数据目录默认 ~/.our-free-model，runtime.json 里有实际端口、Key、uiToken
-for f in test/*.mjs; do node "$f"; done     # 25 套回归
+for f in test/*.mjs; do node "$f"; done     # 27 套回归
 ```
 
 ### Android 构建
@@ -274,7 +303,7 @@ cd android && ./gradlew assembleDebug                       # 4) 打包
 
 ### 测试
 
-25 套纯 mock 回归、共 **1671 项断言**，不依赖账号与外网，覆盖协议互转、登录回调、模型目录、SSE 分帧与流式稳定性、工具调用、签到与日志、用量与缓存命中、网页搜索与 MCP、Kilo 免费池、延迟响应头、工具线缆 decoy 过滤、思考档位与预算阶梯、Raccoon Cookie 登录、省 Token 压缩。每次改 `core/` 后跑一遍再同步 assets。
+27 套纯 mock 回归、共 **1850 项断言**，不依赖账号与外网，覆盖协议互转、登录回调、模型目录、SSE 分帧与流式稳定性、工具调用、签到与日志、用量与缓存命中、网页搜索与 MCP、Kilo 免费池、延迟响应头、工具线缆 decoy 过滤、思考档位与预算阶梯、Raccoon Cookie 登录、省 Token 压缩、应用内更新的版本比较 / Release 解析 / 校验和规则、渠道自动续期的过期时间统一解析 / 刷新锁 / 定时调度与失败语义。每次改 `core/` 后跑一遍再同步 assets。
 
 ---
 
@@ -319,6 +348,7 @@ cd android && ./gradlew assembleDebug                       # 4) 打包
 - **调试版已在真机使用**，并据此修过多轮真机问题（流式断流、模型页闪退等）；但九个账号渠道**没有逐一完成真实账号的完整对话联调**，自动化测试全是纯 mock。公开接口（MiniMax 目录、Loomy 短信登录、搜索回退链）做过真实网络实测。第一次联调请按「登录 → 拉模型 → 一句话对话 → 工具调用」直线走，别叠功能。
 - **Kilo 免费池不需要账号，但免费不等于私密**：网关在自己的模型卡上写明免费池的 prompt 可能被记录并用于改进服务，只适合一次性任务。
 - 省 Token 是**启发式压缩**：规则不认识的内容原样发送，规则认识但压缩后仍可能丢细节（例如 diff 只保留变更行）。担心上下文被改写时，在设置页关掉即可。
+- 应用内更新**只校验不签名验证**：SHA256 来自官方 Release 的 `SHA256SUMS.txt`，能挡住镜像截断 / 掉包，但挡不住「官方 Release 本身被替换」。安装包是 debug 签名，且需要用户手动授权「安装未知来源应用」，请自行确认下载域名可信。
 - 待办：全渠道真机联调、Qoder 的 `business` 与 uid 验证、设备码与本地回调两种登录各跑一遍、后台存活的 `AlarmManager` 兜底。
 - 这些渠道是**逆向官方桌面 / IDE 客户端的私有协议再实现**，账号侧存在被判定为非官方客户端的风险，协议随时可能变更；协议常量截止 2026-10。
 - 上游 `channel-pack` 为 MIT，保留其版权与 NOTICE；本仓库的 Qoder WASM 桥、RTK 压缩器与提示词库是移植实现，文件头已注明来源。本仓库本身未声明独立许可证。
@@ -326,7 +356,8 @@ cd android && ./gradlew assembleDebug                       # 4) 打包
 
 ---
 
-**版本**：v0.2.0。
+**版本**：v0.3.0。
 
+- **v0.3.0**：应用内更新（启动每 24 小时自动检查 GitHub Release + 手动检查，下载后 SHA256 校验再拉起系统安装，官方直连 + 自定义加速前缀）；渠道自动续期（统一过期时间解析支持数字秒/毫秒、ISO、JWT `exp` 兜底，单账号刷新锁，后台定时主动续期，AUTH 失败标需重登、传输失败不误判）；Qoder 中国版显示名改为 `qodercn`。
 - **v0.2.0**：修复 Raccoon 登录 —— 官方扫码落地页 `xiaohuanxiong.com/login/mp` 已 404（本地拼的 `code` 官网本就不认），改为本机 `http://127.0.0.1:18900/raccoon/login` 过渡页跳官网 `/login`，WebView 登录后用 `xhx_token` / `raccoon_token` 调模型目录验活才落库；第三方客户端可以从 `/v1/models` 读、用五种请求字段设思考强度（Anthropic `thinking.budget_tokens` 不再写死 `high`）。
 - **v0.1.0**：Kilo 免费池、失败真实状态码、工具线缆、响应体嗅探、思考档位与预算阶梯、省 Token、用量看板重做；设计预览见 `design/M35-ui-preview.html`。

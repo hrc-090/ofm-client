@@ -1,5 +1,5 @@
 /**
- * Qoder / Qoder 中国版渠道。
+ * Qoder / qodercn渠道。
  *
  * 默认走**加密端点**（WASM 生成的 url/headers/body 原样透传），
  * 只有显式配置 mode='public' 时才走公开 OpenAI 兼容端点（模型名不同！）。

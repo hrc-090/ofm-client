@@ -21,6 +21,7 @@ export class ZCodeChannel {
     this.requiresAccount = true;
     this.supported = true;
     this.note = '设备授权（无需装 ZCode IDE）';
+    this.renewable = false; // 无 refresh 端点
   }
 
   credential(store, account, opts = {}) {
