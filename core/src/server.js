@@ -140,8 +140,19 @@ export function createApp({
     const s = resolveModelId(raw);
     if (!s || s.includes('/')) return s;
 
+    // 第三方插件常把模型名写成自己的口径：`deepseek-v4-flash`、`DEEPSEEK_V4_FLASH`；
+    // 目录里则是 `DeepSeek-V4-Flash` / 显示名 `DeepSeek V4 Flash`。大小写与
+    // `- _ 空格` 的差异必须先归一化再比对，否则会误报「模型 id 必须形如 provider/model」。
+    // 只做无损清洗，不删其它字符，避免把两个不同模型合并成一个。
+    const looseKey = (x) => String(x || '').toLowerCase().replace(/[\s_-]+/g, '');
     const pick = (list) => {
-      const hit = list.filter((m) => m.model === s || resolveModelId(m.display_name || '') === s);
+      const exact = list.filter((m) => m.model === s || resolveModelId(m.display_name || '') === s);
+      if (exact.length) return exact.length === 1 ? exact[0].id : s;
+      const key = looseKey(s);
+      if (!key) return s;
+      const hit = list.filter((m) =>
+        looseKey(m.model) === key || looseKey(resolveModelId(m.display_name || '')) === key
+      );
       // 同名模型出现在多个渠道时故意不猜：猜错渠道会把请求送到错误上游，
       // 比一个清晰的 400 更难查。
       return hit.length === 1 ? hit[0].id : s;
